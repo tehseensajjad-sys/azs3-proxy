@@ -246,13 +246,4 @@ MIT License – see LICENSE file for details.
 
 ---
 
-## References
-
-- [S3Proxy](https://github.com/gaul/s3proxy) – Production S3→multi-cloud proxy
-- [AWS Signature Version 4](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_aws-signing.html)
-- [Azure Blob Storage SDK for Go](https://github.com/Azure/azure-sdk-for-go/tree/main/sdk/storage/azblob)
-- [MinIO Azure Gateway](https://github.com/minio/minio/tree/master/cmd/gateway-azure) (deprecated)
-
----
-
 **Status**: ⚠️ Alpha – API may change. Not production-ready until v1.0.
