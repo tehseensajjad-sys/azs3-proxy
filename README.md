@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/status-alpha-orange) ![Language](https://img.shields.io/badge/language-Go-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage using Go and Azure SDK. Enables S3 clients (VAST, MinIO, etc.) to work with Azure Blob as backend.
+S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage using Azure Go SDK. Enables S3 clients to work with Azure Blob as backend.
 
 ## Overview
 
@@ -13,7 +13,6 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 - Supports core S3 bucket and object operations (CRUD, listing, multipart upload)
 
 ### Use Cases
-- Replace MinIO/VAST S3 backend with Azure Blob Storage
 - Migrate S3-dependent applications to Azure
 - Multi-cloud storage abstraction for S3 clients
 
