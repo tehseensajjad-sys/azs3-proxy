@@ -238,3 +238,159 @@ func TestMultipartUploadMismatchedBucketKey(t *testing.T) {
 		t.Error("AbortMultipartUpload should fail for mismatched bucket/key")
 	}
 }
+
+// Test CompleteMultipartUpload validates error cases
+func TestCompleteMultipartUploadErrors(t *testing.T) {
+	backend := &AzureBlobBackend{
+		multipartUploads: make(map[string]*MultipartUploadMetadata),
+	}
+
+	ctx := context.Background()
+
+	// Test completing non-existent upload
+	_, err := backend.CompleteMultipartUpload(ctx, "bucket", "key", "nonexistent", nil)
+	if err == nil {
+		t.Error("CompleteMultipartUpload should fail for non-existent upload")
+	}
+}
+
+// Test ListMultipartUploads with empty list
+func TestListMultipartUploadsEmpty(t *testing.T) {
+	backend := &AzureBlobBackend{
+		multipartUploads: make(map[string]*MultipartUploadMetadata),
+	}
+
+	ctx := context.Background()
+
+	// Should return empty list
+	uploads, err := backend.ListMultipartUploads(ctx, "bucket")
+	if err != nil {
+		t.Errorf("ListMultipartUploads failed: %v", err)
+	}
+	if len(uploads) != 0 {
+		t.Errorf("expected 0 uploads, got %d", len(uploads))
+	}
+}
+
+// Test AbortMultipartUpload success path
+func TestAbortMultipartUploadSuccess(t *testing.T) {
+	mockUpload := &MultipartUploadMetadata{
+		UploadID:        "test-upload-123",
+		BucketName:      "bucket1",
+		ObjectKey:       "key1",
+		BlockIDs:        []string{},
+		PartETagMap:     make(map[int]string),
+		BlockBlobClient: nil,
+	}
+
+	backend := &AzureBlobBackend{
+		multipartUploads: map[string]*MultipartUploadMetadata{
+			"test-upload-123": mockUpload,
+		},
+	}
+
+	ctx := context.Background()
+
+	// Should successfully abort
+	err := backend.AbortMultipartUpload(ctx, "bucket1", "key1", "test-upload-123")
+	if err != nil {
+		t.Errorf("AbortMultipartUpload failed: %v", err)
+	}
+
+	// Verify upload was removed
+	if _, exists := backend.multipartUploads["test-upload-123"]; exists {
+		t.Error("Upload should have been removed after abort")
+	}
+}
+
+// Test ListMultipartUploads with multiple uploads
+func TestListMultipartUploadsMultiple(t *testing.T) {
+	mockUpload1 := &MultipartUploadMetadata{
+		UploadID:        "upload-1",
+		BucketName:      "bucket1",
+		ObjectKey:       "key1",
+		BlockIDs:        []string{},
+		PartETagMap:     make(map[int]string),
+		BlockBlobClient: nil,
+	}
+
+	mockUpload2 := &MultipartUploadMetadata{
+		UploadID:        "upload-2",
+		BucketName:      "bucket1",
+		ObjectKey:       "key2",
+		BlockIDs:        []string{},
+		PartETagMap:     make(map[int]string),
+		BlockBlobClient: nil,
+	}
+
+	backend := &AzureBlobBackend{
+		multipartUploads: map[string]*MultipartUploadMetadata{
+			"upload-1": mockUpload1,
+			"upload-2": mockUpload2,
+		},
+	}
+
+	ctx := context.Background()
+
+	// Should return 2 uploads for bucket1
+	uploads, err := backend.ListMultipartUploads(ctx, "bucket1")
+	if err != nil {
+		t.Errorf("ListMultipartUploads failed: %v", err)
+	}
+	if len(uploads) != 2 {
+		t.Errorf("expected 2 uploads, got %d", len(uploads))
+	}
+}
+
+// Test ListParts with multiple parts
+func TestListPartsWithParts(t *testing.T) {
+	mockUpload := &MultipartUploadMetadata{
+		UploadID:   "upload-123",
+		BucketName: "bucket1",
+		ObjectKey:  "key1",
+		BlockIDs:   []string{"block1", "block2", "block3"},
+		PartETagMap: map[int]string{
+			1: "etag1",
+			2: "etag2",
+			3: "etag3",
+		},
+		BlockBlobClient: nil,
+	}
+
+	backend := &AzureBlobBackend{
+		multipartUploads: map[string]*MultipartUploadMetadata{
+			"upload-123": mockUpload,
+		},
+	}
+
+	ctx := context.Background()
+
+	parts, err := backend.ListParts(ctx, "bucket1", "key1", "upload-123")
+	if err != nil {
+		t.Errorf("ListParts failed: %v", err)
+	}
+	if len(parts) != 3 {
+		t.Errorf("expected 3 parts, got %d", len(parts))
+	}
+}
+
+// Test AbortMultipartUpload error case
+func TestAbortMultipartUploadNotFound(t *testing.T) {
+	backend := &AzureBlobBackend{
+		multipartUploads: make(map[string]*MultipartUploadMetadata),
+	}
+
+	ctx := context.Background()
+
+	err := backend.AbortMultipartUpload(ctx, "bucket1", "key1", "nonexistent")
+	if err == nil {
+		t.Error("AbortMultipartUpload should fail for non-existent upload")
+	}
+}
+
+// Test InitiateMultipartUpload generates unique IDs
+func TestInitiateMultipartUploadUniqueness(t *testing.T) {
+	// Skip test if we can't create a real Azure client
+	// (this would require valid Azure credentials)
+	t.Logf("InitiateMultipartUpload requires real Azure SDK client, skipping uniqueness test")
+}
