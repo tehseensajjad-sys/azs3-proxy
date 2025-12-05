@@ -23,6 +23,7 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 - ✅ Full S3 API compatibility (bucket & object operations)
 - ✅ AWS Signature Version 4 authentication
 - ✅ Multipart uploads for large objects
+- ✅ Object versioning support
 - ✅ Streaming support (no full object buffering)
 - ✅ Connection pooling & concurrency optimization
 - ✅ Structured logging with zap
