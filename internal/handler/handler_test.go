@@ -678,3 +678,206 @@ func TestListMultipartUploadsHandler(t *testing.T) {
 		t.Errorf("ListMultipartUploads: expected upload info in response")
 	}
 }
+
+// TestEnableVersioningHandler tests enabling versioning on a bucket
+func TestEnableVersioningHandler(t *testing.T) {
+	tests := []struct {
+		name                 string
+		bucket               string
+		enableVersioningFunc func(ctx context.Context, bucketName string) error
+		expectStatus         int
+	}{
+		{
+			name:   "enable_versioning_success",
+			bucket: "mybucket",
+			enableVersioningFunc: func(ctx context.Context, bucketName string) error {
+				return nil
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name:   "enable_versioning_error",
+			bucket: "mybucket",
+			enableVersioningFunc: func(ctx context.Context, bucketName string) error {
+				return errors.New("containernotfound")
+			},
+			expectStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mockBackend := &MockBackend{
+				EnableVersioningFunc: test.enableVersioningFunc,
+			}
+			logger, _ := zap.NewDevelopment()
+			defer logger.Sync()
+			handler := NewS3Handler(mockBackend, logger)
+
+			r := chi.NewRouter()
+			r.Put("/{bucket}", handler.EnableVersioningHandler)
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest("PUT", "/"+test.bucket+"?versioning", nil)
+			r.ServeHTTP(w, req)
+
+			if w.Code != test.expectStatus {
+				t.Errorf("EnableVersioning: expected status %d, got %d", test.expectStatus, w.Code)
+			}
+		})
+	}
+}
+
+// TestGetVersioningHandler tests getting versioning status
+func TestGetVersioningHandler(t *testing.T) {
+	tests := []struct {
+		name              string
+		bucket            string
+		getVersioningFunc func(ctx context.Context, bucketName string) (bool, error)
+		expectStatus      int
+	}{
+		{
+			name:   "get_versioning_enabled",
+			bucket: "mybucket",
+			getVersioningFunc: func(ctx context.Context, bucketName string) (bool, error) {
+				return true, nil
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name:   "get_versioning_disabled",
+			bucket: "mybucket",
+			getVersioningFunc: func(ctx context.Context, bucketName string) (bool, error) {
+				return false, nil
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name:   "get_versioning_error",
+			bucket: "mybucket",
+			getVersioningFunc: func(ctx context.Context, bucketName string) (bool, error) {
+				return false, errors.New("containernotfound")
+			},
+			expectStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mockBackend := &MockBackend{
+				GetVersioningFunc: test.getVersioningFunc,
+			}
+			logger, _ := zap.NewDevelopment()
+			defer logger.Sync()
+			handler := NewS3Handler(mockBackend, logger)
+
+			r := chi.NewRouter()
+			r.Get("/{bucket}", handler.GetVersioningHandler)
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/"+test.bucket+"?versioning", nil)
+			r.ServeHTTP(w, req)
+
+			if w.Code != test.expectStatus {
+				t.Errorf("GetVersioning: expected status %d, got %d", test.expectStatus, w.Code)
+			}
+		})
+	}
+}
+
+// TestListObjectVersionsHandler tests listing object versions
+func TestListObjectVersionsHandler(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListObjectVersionsFunc: func(ctx context.Context, bucketName, prefix string) ([]interface{}, error) {
+			return []interface{}{}, nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}", handler.ListObjectVersionsHandler)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/mybucket?versions", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("ListObjectVersions: expected status 200, got %d", w.Code)
+	}
+}
+
+// TestGetObjectVersionHandler tests retrieving a specific object version
+func TestGetObjectVersionHandler(t *testing.T) {
+	mockBackend := &MockBackend{
+		GetObjectVersionFunc: func(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader([]byte("version data"))), nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.GetObjectVersionHandler)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/mybucket/mykey?versionId=v123", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("GetObjectVersion: expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body != "version data" {
+		t.Errorf("GetObjectVersion: expected body 'version data', got %s", body)
+	}
+}
+
+// TestDeleteObjectVersionHandler tests deleting a specific object version
+func TestDeleteObjectVersionHandler(t *testing.T) {
+	tests := []struct {
+		name         string
+		deleteFunc   func(ctx context.Context, bucketName, objectKey, versionID string) error
+		expectStatus int
+	}{
+		{
+			name: "delete_version_success",
+			deleteFunc: func(ctx context.Context, bucketName, objectKey, versionID string) error {
+				return nil
+			},
+			expectStatus: http.StatusNoContent,
+		},
+		{
+			name: "delete_version_error",
+			deleteFunc: func(ctx context.Context, bucketName, objectKey, versionID string) error {
+				return errors.New("blobnotfound")
+			},
+			expectStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mockBackend := &MockBackend{
+				DeleteObjectVersionFunc: test.deleteFunc,
+			}
+			logger, _ := zap.NewDevelopment()
+			defer logger.Sync()
+			handler := NewS3Handler(mockBackend, logger)
+
+			r := chi.NewRouter()
+			r.Delete("/{bucket}/*", handler.DeleteObjectVersionHandler)
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest("DELETE", "/mybucket/mykey?versionId=v123", nil)
+			r.ServeHTTP(w, req)
+
+			if w.Code != test.expectStatus {
+				t.Errorf("DeleteObjectVersion: expected status %d, got %d", test.expectStatus, w.Code)
+			}
+		})
+	}
+}
