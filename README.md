@@ -149,10 +149,17 @@ s3-azure-proxy/
 - `POST /{bucket}/{key}?uploadId=...` – Complete
 - `DELETE /{bucket}/{key}?uploadId=...` – Abort
 
+### Versioning
+
+- `PUT /{bucket}?versioning` – Enable versioning on bucket
+- `GET /{bucket}?versioning` – Get versioning status
+- `GET /{bucket}?versions` – List object versions
+- `GET /{bucket}/{key}?versionId=X` – Get specific version
+- `DELETE /{bucket}/{key}?versionId=X` – Delete specific version
+
 ### Not Supported (v1)
 
-- ACLs, versioning, tagging
-- Object encryption (SSE-S3, SSE-KMS)
+- ACLs, tagging, object encryption (SSE-S3, SSE-KMS)
 - Bucket policies, lifecycle rules
 - S3 Select, requester pays
 
