@@ -23,7 +23,9 @@ type Config struct {
 	S3SecretAccessKey string
 
 	// Logging
-	LogLevel string
+	LogLevel string // Log level (debug, info, warn, error, crit)
+	LogFile  string // Path to log file (empty for console only)
+	LogMode  string // Logging mode (console, file, both)
 }
 
 // LoadConfig loads configuration from environment variables
@@ -43,6 +45,8 @@ func LoadConfig() (*Config, error) {
 		S3AccessKeyID:     getEnvRequired("S3_ACCESS_KEY"),
 		S3SecretAccessKey: getEnvRequired("S3_SECRET_KEY"),
 		LogLevel:          getEnv("LOG_LEVEL", "info"),
+		LogFile:           getEnv("LOG_FILE", ""),
+		LogMode:           getEnv("LOG_MODE", "console"),
 	}
 
 	if err := cfg.Validate(); err != nil {

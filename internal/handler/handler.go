@@ -183,7 +183,11 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 // PutObjectHandler handles PUT /{bucket}/{key}
 func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	bucket, key := extractBucketAndKey(r)
-	h.logger.Debug("PutObject request", zap.String("bucket", bucket), zap.String("key", key))
+	contentLength := r.ContentLength
+	h.logger.Debug("PutObject request",
+		zap.String("bucket", bucket),
+		zap.String("key", key),
+		zap.Int64("content_length", contentLength))
 
 	if key == "" {
 		// This is a bucket operation, not an object operation
@@ -193,7 +197,11 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := h.backend.PutObject(r.Context(), bucket, key, r.Body)
 	if err != nil {
-		h.logger.Error("failed to put object", zap.Error(err), zap.String("bucket", bucket), zap.String("key", key))
+		h.logger.Error("failed to put object",
+			zap.Error(err),
+			zap.String("bucket", bucket),
+			zap.String("key", key),
+			zap.Int64("content_length", contentLength))
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -205,6 +213,11 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logger.Info("object uploaded successfully",
+		zap.String("bucket", bucket),
+		zap.String("key", key),
+		zap.Int64("content_length", contentLength))
+
 	w.Header().Set("ETag", "\"0\"")
 	w.WriteHeader(http.StatusOK)
 }
@@ -212,7 +225,9 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 // GetObjectHandler handles GET /{bucket}/{key}
 func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	bucket, key := extractBucketAndKey(r)
-	h.logger.Debug("GetObject request", zap.String("bucket", bucket), zap.String("key", key))
+	h.logger.Debug("GetObject request",
+		zap.String("bucket", bucket),
+		zap.String("key", key))
 
 	if key == "" {
 		// This is a list operation, not a get object operation
@@ -222,7 +237,10 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	body, err := h.backend.GetObject(r.Context(), bucket, key)
 	if err != nil {
-		h.logger.Error("failed to get object", zap.Error(err), zap.String("bucket", bucket), zap.String("key", key))
+		h.logger.Error("failed to get object",
+			zap.Error(err),
+			zap.String("bucket", bucket),
+			zap.String("key", key))
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -234,6 +252,10 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer body.Close()
+
+	h.logger.Info("object downloaded successfully",
+		zap.String("bucket", bucket),
+		zap.String("key", key))
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("ETag", "\"0\"")

@@ -13,30 +13,31 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/logging"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/server"
 )
 
 func main() {
-	// Initialize logger
-	logger, err := zap.NewProduction()
+	// Load config first to get logging configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+
+	// Initialize custom logger with file and/or console output
+	logger, err := logging.NewLogger(cfg.LogFile, logging.LogLevel(cfg.LogLevel), cfg.LogMode)
 	if err != nil {
 		log.Fatalf("failed to initialize logger: %v", err)
 	}
 	defer logger.Sync()
 
-	// Load config
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		logger.Fatal("failed to load config", zap.Error(err))
-	}
-
 	// Create router
 	router := chi.NewRouter()
 
 	// Initialize S3 proxy server
-	_, err = server.NewS3ProxyServer(router, cfg, logger)
+	_, err = server.NewS3ProxyServer(router, cfg, logger.GetZapLogger())
 	if err != nil {
-		logger.Fatal("failed to create S3 proxy server", zap.Error(err))
+		logger.Crit("failed to create S3 proxy server", zap.Error(err))
 	}
 
 	// Create HTTP server
@@ -51,7 +52,11 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		logger.Info("starting S3 proxy server", zap.String("addr", cfg.ListenAddr), zap.Bool("tls", cfg.EnableTLS))
+		logger.Info("starting S3 proxy server",
+			zap.String("addr", cfg.ListenAddr),
+			zap.Bool("tls", cfg.EnableTLS),
+			zap.String("log_level", cfg.LogLevel),
+			zap.String("log_mode", cfg.LogMode))
 		var err error
 		if cfg.EnableTLS {
 			err = httpServer.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile)
@@ -59,7 +64,7 @@ func main() {
 			err = httpServer.ListenAndServe()
 		}
 		if err != nil && err != http.ErrServerClosed {
-			logger.Fatal("server error", zap.Error(err))
+			logger.Crit("server error", zap.Error(err))
 		}
 	}()
 

@@ -170,7 +170,9 @@ s3-azure-proxy/
 | Env Variable | Required | Default | Description |
 |---|---|---|---|
 | `LISTEN_ADDR` | No | `:8080` | HTTP server listen address |
-| `LOG_LEVEL` | No | `info` | Logging level (debug, info, warn, error) |
+| `LOG_LEVEL` | No | `info` | Logging level (debug, info, warn, error, crit) |
+| `LOG_FILE` | No | – | Path to log file (empty for console only) |
+| `LOG_MODE` | No | `console` | Logging mode (console, file, both) |
 | `ENABLE_TLS` | No | `false` | Enable HTTPS/TLS support (true/false) |
 | `TLS_CERT_FILE` | Conditional | – | Path to TLS certificate file (required if ENABLE_TLS=true) |
 | `TLS_KEY_FILE` | Conditional | – | Path to TLS private key file (required if ENABLE_TLS=true) |
@@ -319,6 +321,65 @@ aws s3 ls \
   --ca-bundle /path/to/cert.pem \
   --region us-east-1
 ```
+
+### Logging & Monitoring
+
+The proxy supports flexible logging with multiple output modes and levels:
+
+#### Logging Configuration
+
+```bash
+# Console logging only (default)
+export LOG_MODE=console
+export LOG_LEVEL=info
+
+# File logging only
+export LOG_MODE=file
+export LOG_FILE=/var/log/s3-proxy.log
+export LOG_LEVEL=debug
+
+# Both console and file logging
+export LOG_MODE=both
+export LOG_FILE=/var/log/s3-proxy.log
+export LOG_LEVEL=info
+```
+
+#### Log Levels
+
+- **debug**: Detailed debugging information, request/response details
+- **info**: General informational messages, successful operations
+- **warn**: Warning messages for potentially problematic situations
+- **error**: Error messages when operations fail
+- **crit**: Critical failures that may require immediate attention
+
+#### Log Output Format
+
+Logs are output in JSON format with the following fields:
+```json
+{
+  "[s3-proxy 1234] {
+    "timestamp": "2025-12-05 14:30:45.123",
+    "level": "INFO",
+    "msg": "object uploaded successfully",
+    "caller": "handler/handler.go:195",
+    "bucket": "mybucket",
+    "key": "myfile.txt",
+    "content_length": 1024
+  }"
+}
+```
+
+Each log line includes:
+- **Program name and PID**: `[s3-proxy 1234]` at the start of each line
+- **Timestamp**: ISO8601 format with millisecond precision
+- **Log level**: DEBUG, INFO, WARN, ERROR, FATAL
+- **Message**: The primary log message
+- **Caller**: File and line number where log originated
+- **Contextual fields**: Structured data related to the operation (bucket, key, error details, etc.)
+
+#### Dynamic Log Level Changes
+
+To change the log level while the proxy is running without restarting, modify the `LOG_LEVEL` environment variable and restart only the logging component (this feature is planned for future releases).
 
 ## Development
 

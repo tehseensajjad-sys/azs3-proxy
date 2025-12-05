@@ -63,10 +63,23 @@ func NewAzureBlobBackend(connectionString string) (*AzureBlobBackend, error) {
 // Supports multiple auth modes: account key, SAS, MSI, SPN, federated token, Azure CLI
 func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap.Logger) (*AzureBlobBackend, error) {
 	ctx := context.Background()
+	logger.Info("initializing Azure Blob backend",
+		zap.String("storage_account", authConfig.StorageAccountName),
+		zap.String("auth_mode", authConfig.Mode.String()))
+
 	client, err := BuildClientFromCredential(ctx, authConfig, logger)
 	if err != nil {
+		logger.Error("failed to build azure blob client",
+			zap.Error(err),
+			zap.String("storage_account", authConfig.StorageAccountName),
+			zap.String("auth_mode", authConfig.Mode.String()))
 		return nil, fmt.Errorf("failed to build azure blob client: %w", err)
 	}
+
+	logger.Info("Azure Blob backend initialized successfully",
+		zap.String("storage_account", authConfig.StorageAccountName),
+		zap.String("auth_mode", authConfig.Mode.String()))
+
 	return &AzureBlobBackend{
 		client:           client,
 		multipartUploads: make(map[string]*MultipartUploadMetadata),

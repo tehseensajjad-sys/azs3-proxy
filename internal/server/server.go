@@ -68,19 +68,32 @@ func (s *S3ProxyServer) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip auth for health check endpoints
 		if r.URL.Path == "/health" || r.URL.Path == "/ping" {
+			s.logger.Debug("health check request", zap.String("path", r.URL.Path), zap.String("method", r.Method))
 			next.ServeHTTP(w, r)
 			return
 		}
 
+		// Log request details
+		s.logger.Debug("processing request",
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+			zap.String("query", r.URL.RawQuery),
+			zap.String("remote_addr", r.RemoteAddr))
+
 		// Verify signature
 		if err := s.auth.VerifySignature(r); err != nil {
-			s.logger.Warn("signature verification failed", zap.Error(err))
+			s.logger.Warn("signature verification failed",
+				zap.Error(err),
+				zap.String("method", r.Method),
+				zap.String("path", r.URL.Path),
+				zap.String("remote_addr", r.RemoteAddr))
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>The request signature we calculated does not match the signature you provided.</Message></Error>`))
 			return
 		}
 
+		s.logger.Debug("signature verified", zap.String("method", r.Method), zap.String("path", r.URL.Path))
 		next.ServeHTTP(w, r)
 	})
 }
