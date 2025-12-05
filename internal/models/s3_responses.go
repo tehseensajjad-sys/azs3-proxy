@@ -6,9 +6,9 @@ import (
 
 // ListBucketsResponse represents the response for list buckets operation
 type ListBucketsResponse struct {
-	XMLName xml.Name  `xml:"ListAllMyBucketsResult"`
-	Buckets []Bucket  `xml:"Buckets>Bucket"`
-	Owner   Owner     `xml:"Owner"`
+	XMLName xml.Name `xml:"ListAllMyBucketsResult"`
+	Buckets []Bucket `xml:"Buckets>Bucket"`
+	Owner   Owner    `xml:"Owner"`
 }
 
 // Bucket represents a single bucket in the list
@@ -53,9 +53,9 @@ type CopyObjectResponse struct {
 
 // InitiateMultipartUploadResponse represents the response for initiate multipart upload
 type InitiateMultipartUploadResponse struct {
-	XMLName xml.Name `xml:"InitiateMultipartUploadResult"`
-	Bucket  string   `xml:"Bucket"`
-	Key     string   `xml:"Key"`
+	XMLName  xml.Name `xml:"InitiateMultipartUploadResult"`
+	Bucket   string   `xml:"Bucket"`
+	Key      string   `xml:"Key"`
 	UploadID string   `xml:"UploadId"`
 }
 
@@ -65,6 +65,48 @@ type CompleteMultipartUploadResponse struct {
 	Bucket  string   `xml:"Bucket"`
 	Key     string   `xml:"Key"`
 	ETag    string   `xml:"ETag"`
+}
+
+// Part represents a single part in a multipart upload
+type Part struct {
+	PartNumber int    `xml:"PartNumber"`
+	ETag       string `xml:"ETag"`
+	Size       int64  `xml:"Size"`
+}
+
+// ListPartsResponse represents the response for listing parts of a multipart upload
+type ListPartsResponse struct {
+	XMLName              xml.Name `xml:"ListPartsResult"`
+	Bucket               string   `xml:"Bucket"`
+	Key                  string   `xml:"Key"`
+	UploadID             string   `xml:"UploadId"`
+	StorageClass         string   `xml:"StorageClass"`
+	PartNumberMarker     int      `xml:"PartNumberMarker"`
+	NextPartNumberMarker int      `xml:"NextPartNumberMarker"`
+	MaxParts             int      `xml:"MaxParts"`
+	IsTruncated          bool     `xml:"IsTruncated"`
+	Parts                []Part   `xml:"Parts>Part"`
+}
+
+// ListMultipartUploadsResponse represents the response for listing ongoing multipart uploads
+type ListMultipartUploadsResponse struct {
+	XMLName            xml.Name     `xml:"ListMultipartUploadResult"`
+	Bucket             string       `xml:"Bucket"`
+	KeyMarker          string       `xml:"KeyMarker"`
+	UploadIDMarker     string       `xml:"UploadIdMarker"`
+	NextKeyMarker      string       `xml:"NextKeyMarker"`
+	NextUploadIDMarker string       `xml:"NextUploadIdMarker"`
+	MaxUploads         int          `xml:"MaxUploads"`
+	IsTruncated        bool         `xml:"IsTruncated"`
+	Uploads            []UploadInfo `xml:"Uploads>Upload"`
+}
+
+// UploadInfo represents a single ongoing multipart upload
+type UploadInfo struct {
+	Key          string `xml:"Key"`
+	UploadID     string `xml:"UploadId"`
+	Initiated    string `xml:"Initiated"`
+	StorageClass string `xml:"StorageClass"`
 }
 
 // ErrorResponse represents an S3 error response

@@ -100,12 +100,41 @@ func (s *S3ProxyServer) registerRoutes() {
 	s.router.Delete("/{bucket}", s3Handler.DeleteBucketHandler)
 	s.router.Get("/", s3Handler.ListBucketsHandler)
 
+	// Multipart upload listing (GET /{bucket}?uploads)
+	s.router.Get("/{bucket}", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("uploads") != "" {
+			s3Handler.ListMultipartUploadsHandler(w, r)
+		} else {
+			s3Handler.ListObjectsV2Handler(w, r)
+		}
+	})
+
 	// Object routes - must come after bucket routes to avoid conflicts
-	s.router.Get("/{bucket}/*", s3Handler.ListObjectsV2Handler)
-	s.router.Put("/{bucket}/*", s3Handler.PutObjectHandler)
-	s.router.Get("/{bucket}/*", s3Handler.GetObjectHandler)
+	s.router.Get("/{bucket}/*", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("uploadId") != "" {
+			s3Handler.ListPartsHandler(w, r)
+		} else {
+			s3Handler.GetObjectHandler(w, r)
+		}
+	})
+
+	s.router.Put("/{bucket}/*", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("uploadId") != "" && r.URL.Query().Get("partNumber") != "" {
+			s3Handler.UploadPartHandler(w, r)
+		} else {
+			s3Handler.PutObjectHandler(w, r)
+		}
+	})
+
 	s.router.Head("/{bucket}/*", s3Handler.HeadObjectHandler)
-	s.router.Delete("/{bucket}/*", s3Handler.DeleteObjectHandler)
+
+	s.router.Delete("/{bucket}/*", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("uploadId") != "" {
+			s3Handler.AbortMultipartUploadHandler(w, r)
+		} else {
+			s3Handler.DeleteObjectHandler(w, r)
+		}
+	})
 
 	// Multipart upload routes
 	s.router.Post("/{bucket}/*", s3Handler.PostObjectHandler)

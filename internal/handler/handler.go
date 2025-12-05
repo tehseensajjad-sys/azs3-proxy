@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -302,6 +303,8 @@ func (h *S3Handler) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 // PostObjectHandler handles POST /{bucket}/{key} (multipart upload)
+// - POST /{bucket}/{key}?uploads - Initiate multipart upload
+// - POST /{bucket}/{key}?uploadId=... - Complete multipart upload
 func (h *S3Handler) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	bucket, key := extractBucketAndKey(r)
 	h.logger.Debug("PostObject request", zap.String("bucket", bucket), zap.String("key", key))
@@ -309,26 +312,305 @@ func (h *S3Handler) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	// Check if this is an upload completion request
 	uploadID := r.URL.Query().Get("uploadId")
 	if uploadID != "" {
-		// Complete multipart upload
-		w.Header().Set("Content-Type", "application/xml")
-		w.WriteHeader(http.StatusOK)
-		resp := models.CompleteMultipartUploadResponse{
-			Bucket: bucket,
-			Key:    key,
-			ETag:   "\"0\"",
-		}
-		xmlData, _ := xml.Marshal(resp)
-		w.Write(xmlData)
+		h.CompleteMultipartUploadHandler(w, r)
 		return
 	}
 
-	// Initiate multipart upload
+	// Check if this is an initiate request
+	if r.URL.Query().Get("uploads") == "" && uploadID == "" {
+		// Check for list multipart uploads
+		if key == "" {
+			h.ListMultipartUploadsHandler(w, r)
+			return
+		}
+	}
+
+	h.InitiateMultipartUploadHandler(w, r)
+}
+
+// InitiateMultipartUploadHandler handles POST /{bucket}/{key}?uploads
+func (h *S3Handler) InitiateMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
+	bucket, key := extractBucketAndKey(r)
+	h.logger.Debug("InitiateMultipartUpload request", zap.String("bucket", bucket), zap.String("key", key))
+
+	if key == "" {
+		s3Err := &models.S3Error{
+			Code:     models.InternalError,
+			Message:  "Key is required for multipart upload",
+			Resource: "/" + bucket,
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	uploadID, err := h.backend.InitiateMultipartUpload(r.Context(), bucket, key)
+	if err != nil {
+		h.logger.Error("failed to initiate multipart upload", zap.Error(err))
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: err.Error(),
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	resp := models.InitiateMultipartUploadResponse{
 		Bucket:   bucket,
 		Key:      key,
-		UploadID: "test-upload-id-" + key,
+		UploadID: uploadID,
+	}
+	xmlData, _ := xml.Marshal(resp)
+	w.Write(xmlData)
+}
+
+// UploadPartHandler handles PUT /{bucket}/{key}?partNumber=X&uploadId=...
+func (h *S3Handler) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
+	bucket, key := extractBucketAndKey(r)
+	uploadID := r.URL.Query().Get("uploadId")
+	partNumberStr := r.URL.Query().Get("partNumber")
+
+	h.logger.Debug("UploadPart request",
+		zap.String("bucket", bucket),
+		zap.String("key", key),
+		zap.String("uploadId", uploadID),
+		zap.String("partNumber", partNumberStr))
+
+	if uploadID == "" {
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: "uploadId is required",
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	if partNumberStr == "" {
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: "partNumber is required",
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	var partNumber int
+	partNum, err := strconv.Atoi(partNumberStr)
+	if err != nil || partNum < 1 || partNum > 10000 {
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: "partNumber must be an integer between 1 and 10000",
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+	partNumber = partNum
+
+	etag, err := h.backend.UploadPart(r.Context(), bucket, key, uploadID, partNumber, r.Body)
+	if err != nil {
+		h.logger.Error("failed to upload part", zap.Error(err))
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: err.Error(),
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	w.Header().Set("ETag", etag)
+	w.WriteHeader(http.StatusOK)
+}
+
+// CompleteMultipartUploadHandler handles POST /{bucket}/{key}?uploadId=...
+func (h *S3Handler) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
+	bucket, key := extractBucketAndKey(r)
+	uploadID := r.URL.Query().Get("uploadId")
+
+	h.logger.Debug("CompleteMultipartUpload request",
+		zap.String("bucket", bucket),
+		zap.String("key", key),
+		zap.String("uploadId", uploadID))
+
+	if uploadID == "" {
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: "uploadId is required",
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	// Parse the request body to get part ETags
+	var completeReq struct {
+		Parts []struct {
+			PartNumber int    `xml:"PartNumber"`
+			ETag       string `xml:"ETag"`
+		} `xml:"Part"`
+	}
+
+	if err := xml.NewDecoder(r.Body).Decode(&completeReq); err != nil {
+		h.logger.Error("failed to parse complete multipart upload request", zap.Error(err))
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: "Invalid request body",
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	// Build part ETags map
+	partETags := make(map[int]string)
+	for _, part := range completeReq.Parts {
+		partETags[part.PartNumber] = part.ETag
+	}
+
+	etag, err := h.backend.CompleteMultipartUpload(r.Context(), bucket, key, uploadID, partETags)
+	if err != nil {
+		h.logger.Error("failed to complete multipart upload", zap.Error(err))
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: err.Error(),
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	resp := models.CompleteMultipartUploadResponse{
+		Bucket: bucket,
+		Key:    key,
+		ETag:   etag,
+	}
+	xmlData, _ := xml.Marshal(resp)
+	w.Write(xmlData)
+}
+
+// AbortMultipartUploadHandler handles DELETE /{bucket}/{key}?uploadId=...
+func (h *S3Handler) AbortMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
+	bucket, key := extractBucketAndKey(r)
+	uploadID := r.URL.Query().Get("uploadId")
+
+	h.logger.Debug("AbortMultipartUpload request",
+		zap.String("bucket", bucket),
+		zap.String("key", key),
+		zap.String("uploadId", uploadID))
+
+	if uploadID == "" {
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: "uploadId is required",
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	err := h.backend.AbortMultipartUpload(r.Context(), bucket, key, uploadID)
+	if err != nil {
+		h.logger.Error("failed to abort multipart upload", zap.Error(err))
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: err.Error(),
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListPartsHandler handles GET /{bucket}/{key}?uploadId=...
+func (h *S3Handler) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
+	bucket, key := extractBucketAndKey(r)
+	uploadID := r.URL.Query().Get("uploadId")
+
+	h.logger.Debug("ListParts request",
+		zap.String("bucket", bucket),
+		zap.String("key", key),
+		zap.String("uploadId", uploadID))
+
+	if uploadID == "" {
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: "uploadId is required",
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	parts, err := h.backend.ListParts(r.Context(), bucket, key, uploadID)
+	if err != nil {
+		h.logger.Error("failed to list parts", zap.Error(err))
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: err.Error(),
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+
+	partList := make([]models.Part, 0, len(parts))
+	for _, p := range parts {
+		partMap := p.(map[string]interface{})
+		partList = append(partList, models.Part{
+			PartNumber: partMap["PartNumber"].(int),
+			ETag:       partMap["ETag"].(string),
+			Size:       partMap["Size"].(int64),
+		})
+	}
+
+	resp := models.ListPartsResponse{
+		Bucket:       bucket,
+		Key:          key,
+		UploadID:     uploadID,
+		StorageClass: "STANDARD",
+		MaxParts:     1000,
+		IsTruncated:  false,
+		Parts:        partList,
+	}
+	xmlData, _ := xml.Marshal(resp)
+	w.Write(xmlData)
+}
+
+// ListMultipartUploadsHandler handles GET /{bucket}?uploads
+func (h *S3Handler) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	h.logger.Debug("ListMultipartUploads request", zap.String("bucket", bucket))
+
+	uploads, err := h.backend.ListMultipartUploads(r.Context(), bucket)
+	if err != nil {
+		h.logger.Error("failed to list multipart uploads", zap.Error(err))
+		s3Err := &models.S3Error{
+			Code:    models.InternalError,
+			Message: err.Error(),
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+
+	uploadList := make([]models.UploadInfo, 0, len(uploads))
+	for _, u := range uploads {
+		uploadMap := u.(map[string]interface{})
+		uploadList = append(uploadList, models.UploadInfo{
+			Key:          uploadMap["Key"].(string),
+			UploadID:     uploadMap["UploadID"].(string),
+			Initiated:    uploadMap["Initiated"].(string),
+			StorageClass: "STANDARD",
+		})
+	}
+
+	resp := models.ListMultipartUploadsResponse{
+		Bucket:      bucket,
+		MaxUploads:  1000,
+		IsTruncated: false,
+		Uploads:     uploadList,
 	}
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)

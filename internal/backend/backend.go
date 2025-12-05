@@ -19,4 +19,26 @@ type StorageBackend interface {
 	DeleteObject(ctx context.Context, bucketName, objectKey string) error
 	HeadObject(ctx context.Context, bucketName, objectKey string) (bool, error)
 	ListObjects(ctx context.Context, bucketName, prefix string) ([]string, error)
+
+	// Multipart upload operations
+	InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (uploadID string, err error)
+	UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (etag string, err error)
+	CompleteMultipartUpload(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (etag string, err error)
+	AbortMultipartUpload(ctx context.Context, bucketName, objectKey, uploadID string) error
+	ListParts(ctx context.Context, bucketName, objectKey, uploadID string) ([]interface{}, error)
+	ListMultipartUploads(ctx context.Context, bucketName string) ([]interface{}, error)
+}
+
+// Part represents information about an uploaded part
+type Part struct {
+	PartNumber int
+	ETag       string
+	Size       int64
+}
+
+// UploadInfo represents information about an ongoing multipart upload
+type UploadInfo struct {
+	Key       string
+	UploadID  string
+	Initiated string
 }

@@ -15,14 +15,20 @@ import (
 
 // MockBackend is a simple mock implementation of StorageBackend for testing
 type MockBackend struct {
-	ListBucketsFunc  func(ctx context.Context) ([]string, error)
-	CreateBucketFunc func(ctx context.Context, bucketName string) error
-	DeleteBucketFunc func(ctx context.Context, bucketName string) error
-	PutObjectFunc    func(ctx context.Context, bucketName, objectKey string, data io.Reader) error
-	GetObjectFunc    func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error)
-	DeleteObjectFunc func(ctx context.Context, bucketName, objectKey string) error
-	HeadObjectFunc   func(ctx context.Context, bucketName, objectKey string) (bool, error)
-	ListObjectsFunc  func(ctx context.Context, bucketName, prefix string) ([]string, error)
+	ListBucketsFunc             func(ctx context.Context) ([]string, error)
+	CreateBucketFunc            func(ctx context.Context, bucketName string) error
+	DeleteBucketFunc            func(ctx context.Context, bucketName string) error
+	PutObjectFunc               func(ctx context.Context, bucketName, objectKey string, data io.Reader) error
+	GetObjectFunc               func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error)
+	DeleteObjectFunc            func(ctx context.Context, bucketName, objectKey string) error
+	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, error)
+	ListObjectsFunc             func(ctx context.Context, bucketName, prefix string) ([]string, error)
+	InitiateMultipartUploadFunc func(ctx context.Context, bucketName, objectKey string) (string, error)
+	UploadPartFunc              func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error)
+	CompleteMultipartUploadFunc func(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (string, error)
+	AbortMultipartUploadFunc    func(ctx context.Context, bucketName, objectKey, uploadID string) error
+	ListPartsFunc               func(ctx context.Context, bucketName, objectKey, uploadID string) ([]interface{}, error)
+	ListMultipartUploadsFunc    func(ctx context.Context, bucketName string) ([]interface{}, error)
 }
 
 func (m *MockBackend) ListBuckets(ctx context.Context) ([]string, error) {
@@ -79,6 +85,54 @@ func (m *MockBackend) ListObjects(ctx context.Context, bucketName, prefix string
 		return m.ListObjectsFunc(ctx, bucketName, prefix)
 	}
 	return []string{"key1", "key2"}, nil
+}
+
+func (m *MockBackend) InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (string, error) {
+	if m.InitiateMultipartUploadFunc != nil {
+		return m.InitiateMultipartUploadFunc(ctx, bucketName, objectKey)
+	}
+	return "test-upload-id", nil
+}
+
+func (m *MockBackend) UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error) {
+	if m.UploadPartFunc != nil {
+		return m.UploadPartFunc(ctx, bucketName, objectKey, uploadID, partNumber, data)
+	}
+	return "\"test-etag\"", nil
+}
+
+func (m *MockBackend) CompleteMultipartUpload(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (string, error) {
+	if m.CompleteMultipartUploadFunc != nil {
+		return m.CompleteMultipartUploadFunc(ctx, bucketName, objectKey, uploadID, partETags)
+	}
+	return "\"combined-etag\"", nil
+}
+
+func (m *MockBackend) AbortMultipartUpload(ctx context.Context, bucketName, objectKey, uploadID string) error {
+	if m.AbortMultipartUploadFunc != nil {
+		return m.AbortMultipartUploadFunc(ctx, bucketName, objectKey, uploadID)
+	}
+	return nil
+}
+
+func (m *MockBackend) ListParts(ctx context.Context, bucketName, objectKey, uploadID string) ([]interface{}, error) {
+	if m.ListPartsFunc != nil {
+		return m.ListPartsFunc(ctx, bucketName, objectKey, uploadID)
+	}
+	return []interface{}{
+		map[string]interface{}{
+			"PartNumber": 1,
+			"ETag":       "\"part1-etag\"",
+			"Size":       int64(1024),
+		},
+	}, nil
+}
+
+func (m *MockBackend) ListMultipartUploads(ctx context.Context, bucketName string) ([]interface{}, error) {
+	if m.ListMultipartUploadsFunc != nil {
+		return m.ListMultipartUploadsFunc(ctx, bucketName)
+	}
+	return []interface{}{}, nil
 }
 
 func TestS3HandlerCreation(t *testing.T) {
@@ -328,5 +382,259 @@ func TestDeleteObjectHandler(t *testing.T) {
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("expected status 204, got %d", w.Code)
+	}
+}
+
+func TestInitiateMultipartUploadHandler(t *testing.T) {
+	mockBackend := &MockBackend{
+		InitiateMultipartUploadFunc: func(ctx context.Context, bucketName, objectKey string) (string, error) {
+			return "upload-123", nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Post("/{bucket}/*", handler.InitiateMultipartUploadHandler)
+
+	req := httptest.NewRequest("POST", "/mybucket/mykey", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("InitiateMultipartUpload: expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !bytes.Contains([]byte(body), []byte("upload-123")) {
+		t.Errorf("InitiateMultipartUpload: expected upload ID in response, got %s", body)
+	}
+}
+
+func TestUploadPartHandler(t *testing.T) {
+	tests := []struct {
+		name       string
+		uploadID   string
+		partNumber string
+		wantStatus int
+		wantError  bool
+	}{
+		{name: "valid part upload", uploadID: "upload-123", partNumber: "1", wantStatus: http.StatusOK, wantError: false},
+		{name: "missing uploadId", uploadID: "", partNumber: "1", wantStatus: http.StatusInternalServerError, wantError: false},
+		{name: "missing partNumber", uploadID: "upload-123", partNumber: "", wantStatus: http.StatusInternalServerError, wantError: false},
+		{name: "invalid partNumber", uploadID: "upload-123", partNumber: "abc", wantStatus: http.StatusInternalServerError, wantError: false},
+		{name: "partNumber out of range", uploadID: "upload-123", partNumber: "99999", wantStatus: http.StatusInternalServerError, wantError: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockBackend := &MockBackend{
+				UploadPartFunc: func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error) {
+					if tt.wantError {
+						return "", errors.New("upload failed")
+					}
+					return "\"part-etag\"", nil
+				},
+			}
+			logger, _ := zap.NewDevelopment()
+			defer logger.Sync()
+			handler := NewS3Handler(mockBackend, logger)
+
+			r := chi.NewRouter()
+			r.Put("/{bucket}/{key}", handler.UploadPartHandler)
+
+			path := "/mybucket/mykey"
+			if tt.uploadID != "" {
+				path += "?uploadId=" + tt.uploadID
+			}
+			if tt.partNumber != "" {
+				if tt.uploadID != "" {
+					path += "&partNumber=" + tt.partNumber
+				} else {
+					path += "?partNumber=" + tt.partNumber
+				}
+			}
+
+			req := httptest.NewRequest("PUT", path, bytes.NewReader([]byte("part data")))
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("expected status %d, got %d", tt.wantStatus, w.Code)
+			}
+		})
+	}
+}
+
+func TestCompleteMultipartUploadHandler(t *testing.T) {
+	mockBackend := &MockBackend{
+		CompleteMultipartUploadFunc: func(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (string, error) {
+			return "\"combined-etag\"", nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Post("/{bucket}/*", handler.CompleteMultipartUploadHandler)
+
+	requestBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CompleteMultipartUpload>
+  <Part>
+    <PartNumber>1</PartNumber>
+    <ETag>"part-etag-1"</ETag>
+  </Part>
+</CompleteMultipartUpload>`
+
+	req := httptest.NewRequest("POST", "/mybucket/mykey?uploadId=upload-123", bytes.NewReader([]byte(requestBody)))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("CompleteMultipartUpload: expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !bytes.Contains([]byte(body), []byte("combined-etag")) {
+		t.Errorf("CompleteMultipartUpload: expected combined etag in response")
+	}
+}
+
+func TestCompleteMultipartUploadHandler_MissingUploadID(t *testing.T) {
+	mockBackend := &MockBackend{}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Post("/{bucket}/*", handler.CompleteMultipartUploadHandler)
+
+	requestBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CompleteMultipartUpload>
+  <Part>
+    <PartNumber>1</PartNumber>
+    <ETag>"part-etag-1"</ETag>
+  </Part>
+</CompleteMultipartUpload>`
+
+	req := httptest.NewRequest("POST", "/mybucket/mykey", bytes.NewReader([]byte(requestBody)))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+func TestAbortMultipartUploadHandler(t *testing.T) {
+	mockBackend := &MockBackend{
+		AbortMultipartUploadFunc: func(ctx context.Context, bucketName, objectKey, uploadID string) error {
+			return nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Delete("/{bucket}/*", handler.AbortMultipartUploadHandler)
+
+	req := httptest.NewRequest("DELETE", "/mybucket/mykey?uploadId=upload-123", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("AbortMultipartUpload: expected status 204, got %d", w.Code)
+	}
+}
+
+func TestAbortMultipartUploadHandler_MissingUploadID(t *testing.T) {
+	mockBackend := &MockBackend{}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Delete("/{bucket}/*", handler.AbortMultipartUploadHandler)
+
+	req := httptest.NewRequest("DELETE", "/mybucket/mykey", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+func TestListPartsHandler(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListPartsFunc: func(ctx context.Context, bucketName, objectKey, uploadID string) ([]interface{}, error) {
+			return []interface{}{
+				map[string]interface{}{
+					"PartNumber": 1,
+					"ETag":       "\"part1-etag\"",
+					"Size":       int64(1024),
+				},
+				map[string]interface{}{
+					"PartNumber": 2,
+					"ETag":       "\"part2-etag\"",
+					"Size":       int64(1024),
+				},
+			}, nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.ListPartsHandler)
+
+	req := httptest.NewRequest("GET", "/mybucket/mykey?uploadId=upload-123", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("ListParts: expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !bytes.Contains([]byte(body), []byte("PartNumber")) {
+		t.Errorf("ListParts: expected parts in response")
+	}
+}
+
+func TestListMultipartUploadsHandler(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListMultipartUploadsFunc: func(ctx context.Context, bucketName string) ([]interface{}, error) {
+			return []interface{}{
+				map[string]interface{}{
+					"Key":       "testkey1",
+					"UploadID":  "upload-123",
+					"Initiated": "2025-01-01T00:00:00Z",
+				},
+			}, nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}", handler.ListMultipartUploadsHandler)
+
+	req := httptest.NewRequest("GET", "/mybucket?uploads", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("ListMultipartUploads: expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !bytes.Contains([]byte(body), []byte("testkey1")) {
+		t.Errorf("ListMultipartUploads: expected upload info in response")
 	}
 }

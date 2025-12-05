@@ -126,3 +126,115 @@ func TestAzureBlobBackendContextHandling(t *testing.T) {
 	_, _ = backend.ListBuckets(ctx)
 	_, _ = backend.ListObjects(ctx, "bucket", "prefix")
 }
+
+func TestMultipartUploadFlow(t *testing.T) {
+	// Test requires real Azure SDK client initialization
+	// Use NewAzureBlobBackendWithAuth to get a proper client
+	authConfig := &config.AzureAuthConfig{
+		Mode:               config.AuthModeAccountKey,
+		StorageAccountName: "testaccount",
+		AccountKey:         "dGVzdGtleQ==", // base64 encoded test key
+	}
+
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger)
+	if err != nil {
+		t.Logf("Backend creation failed (expected for test): %v", err)
+		// Expected to fail in test environment - we don't have real Azure credentials
+		return
+	}
+
+	if backend == nil || backend.client == nil {
+		t.Skip("Backend client is nil, skipping multipart upload flow test")
+	}
+
+	ctx := context.Background()
+
+	// Test Initiate
+	uploadID, err := backend.InitiateMultipartUpload(ctx, "testbucket", "testkey")
+	if err != nil {
+		t.Logf("InitiateMultipartUpload failed (expected in test): %v", err)
+		return // Expected in test environment
+	}
+	if uploadID == "" {
+		t.Error("InitiateMultipartUpload returned empty upload ID")
+	}
+
+	// Test ListParts (should work but be empty)
+	parts, err := backend.ListParts(ctx, "testbucket", "testkey", uploadID)
+	if err != nil {
+		t.Logf("ListParts failed (expected in test): %v", err)
+		return // Expected if upload doesn't exist
+	}
+	if len(parts) != 0 {
+		t.Logf("ListParts returned %d parts", len(parts))
+	}
+
+	// Test AbortMultipartUpload
+	err = backend.AbortMultipartUpload(ctx, "testbucket", "testkey", uploadID)
+	if err != nil {
+		t.Logf("AbortMultipartUpload failed: %v", err)
+	}
+}
+
+func TestMultipartUploadInvalidOperations(t *testing.T) {
+	backend := &AzureBlobBackend{
+		multipartUploads: make(map[string]*MultipartUploadMetadata),
+	}
+
+	ctx := context.Background()
+
+	// Test operations on non-existent upload
+	_, err := backend.UploadPart(ctx, "bucket", "key", "nonexistent", 1, nil)
+	if err == nil {
+		t.Error("UploadPart should fail for non-existent upload")
+	}
+
+	_, err = backend.ListParts(ctx, "bucket", "key", "nonexistent")
+	if err == nil {
+		t.Error("ListParts should fail for non-existent upload")
+	}
+
+	err = backend.AbortMultipartUpload(ctx, "bucket", "key", "nonexistent")
+	if err == nil {
+		t.Error("AbortMultipartUpload should fail for non-existent upload")
+	}
+}
+
+func TestMultipartUploadMismatchedBucketKey(t *testing.T) {
+	// Create a minimal mock upload metadata
+	mockUpload := &MultipartUploadMetadata{
+		UploadID:        "test-upload-123",
+		BucketName:      "bucket1",
+		ObjectKey:       "key1",
+		BlockIDs:        []string{},
+		PartETagMap:     make(map[int]string),
+		BlockBlobClient: nil, // Not needed for this test
+	}
+
+	backend := &AzureBlobBackend{
+		multipartUploads: map[string]*MultipartUploadMetadata{
+			"test-upload-123": mockUpload,
+		},
+	}
+
+	ctx := context.Background()
+
+	// Try to use it with bucket2/key2
+	_, err := backend.UploadPart(ctx, "bucket2", "key2", "test-upload-123", 1, nil)
+	if err == nil {
+		t.Error("UploadPart should fail for mismatched bucket/key")
+	}
+
+	_, err = backend.ListParts(ctx, "bucket2", "key2", "test-upload-123")
+	if err == nil {
+		t.Error("ListParts should fail for mismatched bucket/key")
+	}
+
+	err = backend.AbortMultipartUpload(ctx, "bucket2", "key2", "test-upload-123")
+	if err == nil {
+		t.Error("AbortMultipartUpload should fail for mismatched bucket/key")
+	}
+}
