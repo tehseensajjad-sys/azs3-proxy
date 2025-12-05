@@ -3,7 +3,7 @@
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)]()
 [![Language: Go](https://img.shields.io/badge/language-Go-blue)]()
 [![Tests](https://img.shields.io/github/actions/workflow/status/vibhansa-msft/s3-azure-proxy/tests.yml?branch=main&label=tests)](https://github.com/vibhansa-msft/s3-azure-proxy/actions)
-[![Coverage](https://img.shields.io/badge/coverage-65.3%25-yellow)]() 
+[![Coverage](https://img.shields.io/badge/coverage-61.4%25-yellow)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/vibhansa-msft/s3-azure-proxy/blob/main/LICENSE)
 
 S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage using Azure Go SDK. Enables S3 clients to work with Azure Blob as backend.
@@ -12,7 +12,7 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 
 **s3-azure-proxy** is a lightweight, production-ready proxy server that:
 
-- Exposes a full S3-compatible REST API (with SigV4 auth)
+- Exposes an S3-compatible REST API (with SigV4 auth)
 - Translates S3 requests to Azure Blob Storage operations
 - Allows S3 clients and applications to seamlessly work with Azure Blob Storage
 - Supports core S3 bucket and object operations (CRUD, listing, multipart upload)
@@ -20,7 +20,7 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 
 ### Key Features
 
-- ✅ Full S3 API compatibility (bucket & object operations)
+- ✅ Core S3 API support (bucket & object operations, multipart, versioning)
 - ✅ AWS Signature Version 4 authentication
 - ✅ Multipart uploads for large objects
 - ✅ Object versioning support
@@ -28,7 +28,6 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 - ✅ Connection pooling & concurrency optimization
 - ✅ Structured logging with zap
 - ✅ Easy Docker deployment
-- ✅ Comprehensive test coverage (65.3% unit tests)
 
 ## Use Cases
 
@@ -258,15 +257,14 @@ go tool cover -html=coverage.out
 
 ### Test Coverage
 
-Current test coverage: **75%+** across all packages
+Current test coverage: **61.4%** across all packages
 
-- `internal/config`: 100% (config loading & validation)
-- `internal/auth`: 90% (SigV4 verification)
-- `internal/backend`: 85% (interface validation)
-- `internal/backend/azureblob`: 80% (client initialization)
-- `internal/handler`: 75% (HTTP handler routing)
-- `internal/models`: 95% (error mapping, XML serialization)
-- `internal/server`: 70% (server lifecycle)
+- `internal/auth`: 87.9% (SigV4 verification)
+- `internal/models`: 83.3% (error mapping, XML serialization)
+- `internal/config`: 69.4% (config loading & validation)
+- `internal/handler`: 69.5% (HTTP handler routing)
+- `internal/backend/azureblob`: 50.0% (client initialization)
+- `internal/server`: 42.6% (server lifecycle)
 
 **Automated Testing:** All tests run automatically via GitHub Actions on every commit to `main` branch.
 
