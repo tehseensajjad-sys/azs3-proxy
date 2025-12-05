@@ -6,63 +6,58 @@ import (
 )
 
 func TestListBucketsResponse(t *testing.T) {
-	tests := []struct {
-		name     string
-		buckets  []string
-		wantErr  bool
-	}{
-		{name: "single bucket", buckets: []string{"test-bucket"}, wantErr: false},
-		{name: "multiple buckets", buckets: []string{"bucket1", "bucket2"}, wantErr: false},
-		{name: "empty buckets", buckets: []string{}, wantErr: false},
+	resp := &ListBucketsResponse{
+		Buckets: []Bucket{
+			{Name: "bucket1", CreationDate: "2024-01-01T00:00:00Z"},
+		},
+		Owner: Owner{ID: "owner-id", DisplayName: "Owner"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := NewListBucketsResponse(tt.buckets)
-			if resp == nil {
-				t.Error("NewListBucketsResponse() returned nil")
-			}
-		})
-	}
-}
-
-func TestMarshalXML(t *testing.T) {
-	tests := []struct {
-		name    string
-		obj     interface{}
-		wantErr bool
-	}{
-		{name: "list buckets response", obj: &ListBucketsResponse{}, wantErr: false},
+	data, err := xml.Marshal(resp)
+	if err != nil {
+		t.Errorf("xml.Marshal() failed: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := xml.Marshal(tt.obj)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("xml.Marshal() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	if len(data) == 0 {
+		t.Error("xml.Marshal() returned empty data")
 	}
 }
 
 func TestListObjectsResponse(t *testing.T) {
-	tests := []struct {
-		name      string
-		bucket    string
-		objects   int
-		wantErr   bool
-	}{
-		{name: "single object", bucket: "test-bucket", objects: 1, wantErr: false},
-		{name: "multiple objects", bucket: "test-bucket", objects: 100, wantErr: false},
-		{name: "no objects", bucket: "test-bucket", objects: 0, wantErr: false},
+	resp := &ListObjectsResponse{
+		Name:        "test-bucket",
+		Prefix:      "test/",
+		MaxKeys:     1000,
+		IsTruncated: false,
+		Contents: []Object{
+			{Key: "test/file.txt", LastModified: "2024-01-01T00:00:00Z", ETag: "\"abc123\"", Size: 100, StorageClass: "STANDARD"},
+		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := NewListObjectsResponse(tt.bucket, tt.objects)
-			if resp == nil {
-				t.Error("NewListObjectsResponse() returned nil")
-			}
-		})
+	data, err := xml.Marshal(resp)
+	if err != nil {
+		t.Errorf("xml.Marshal() failed: %v", err)
+	}
+
+	if len(data) == 0 {
+		t.Error("xml.Marshal() returned empty data")
+	}
+}
+
+func TestErrorResponse(t *testing.T) {
+	resp := &ErrorResponse{
+		Code:      "NoSuchKey",
+		Message:   "The specified key does not exist.",
+		Resource:  "/bucket/key",
+		RequestID: "request-123",
+	}
+
+	data, err := xml.Marshal(resp)
+	if err != nil {
+		t.Errorf("xml.Marshal() failed: %v", err)
+	}
+
+	if len(data) == 0 {
+		t.Error("xml.Marshal() returned empty data")
 	}
 }

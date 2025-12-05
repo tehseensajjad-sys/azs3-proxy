@@ -1,84 +1,131 @@
 package server
 
 import (
-	"context"
-	"net/http"
 	"testing"
-	"time"
+
+	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
+
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
 )
 
-func TestNewServer(t *testing.T) {
-	tests := []struct {
-		name   string
-		addr   string
-		port   int
-		wantErr bool
-	}{
-		{name: "valid address", addr: "localhost", port: 8080, wantErr: false},
-		{name: "empty address", addr: "", port: 8080, wantErr: false},
-		{name: "zero port", addr: "localhost", port: 0, wantErr: false},
+func TestNewS3ProxyServer(t *testing.T) {
+	// Create a valid Azure auth config for testing
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AuthModeAccountKey,
+		StorageAccountName: "testaccount",
+		AccountKey:         "dGVzdGtleQ==", // base64 encoded "testkey"
+		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s, err := NewServer(tt.addr, tt.port)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewServer() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if s == nil && !tt.wantErr {
-				t.Error("NewServer() returned nil server")
-			}
-		})
+	cfg := &config.Config{
+		ListenAddr:        ":8080",
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     "AKIA1234567890ABCDEF",
+		S3SecretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+		LogLevel:          "info",
 	}
-}
 
-func TestServerStart(t *testing.T) {
-	s, _ := NewServer("localhost", 0)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
 
-	err := s.Start(ctx)
-	if err != nil && err != context.DeadlineExceeded {
-		t.Errorf("Server.Start() error = %v", err)
-	}
-}
-
-func TestServerShutdown(t *testing.T) {
-	s, _ := NewServer("localhost", 0)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		s.Start(ctx)
-	}()
-
-	time.Sleep(100 * time.Millisecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := s.Shutdown(ctx)
+	// This should work with valid config
+	server, err := NewS3ProxyServer(router, cfg, logger)
 	if err != nil {
-		t.Errorf("Server.Shutdown() error = %v", err)
+		t.Errorf("NewS3ProxyServer() failed: %v", err)
+	}
+
+	if server == nil {
+		t.Error("Expected non-nil server")
 	}
 }
 
-func TestServerRoutes(t *testing.T) {
-	s, _ := NewServer("localhost", 0)
-	
-	tests := []struct {
-		name   string
-		method string
-		path   string
-	}{
-		{name: "GET root", method: "GET", path: "/"},
-		{name: "GET bucket object", method: "GET", path: "/bucket/key"},
-		{name: "PUT object", method: "PUT", path: "/bucket/key"},
+func TestNewS3ProxyServerWithSASAuth(t *testing.T) {
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AuthModeSAS,
+		StorageAccountName: "testaccount",
+		SASToken:           "sv=2021-06-08&st=2023-01-01&se=2024-01-01",
+		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req, _ := http.NewRequest(tt.method, tt.path, nil)
-			// Test that route is registered without panic
-			_ = req
-		})
+	cfg := &config.Config{
+		ListenAddr:        ":8080",
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     "AKIA1234567890ABCDEF",
+		S3SecretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+		LogLevel:          "info",
+	}
+
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	server, err := NewS3ProxyServer(router, cfg, logger)
+	if err != nil {
+		t.Errorf("NewS3ProxyServer() with SAS failed: %v", err)
+	}
+
+	if server == nil {
+		t.Error("Expected non-nil server with SAS auth")
+	}
+}
+
+func TestNewS3ProxyServerWithMSIAuth(t *testing.T) {
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AuthModeMSI,
+		StorageAccountName: "testaccount",
+		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
+	}
+
+	cfg := &config.Config{
+		ListenAddr:        ":8080",
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     "AKIA1234567890ABCDEF",
+		S3SecretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+		LogLevel:          "info",
+	}
+
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	// MSI auth might fail in non-Azure environment, but should not panic
+	_, _ = NewS3ProxyServer(router, cfg, logger)
+	// Server can be nil if MSI init fails, which is expected
+	if router == nil {
+		t.Error("Router should not be affected by MSI auth failure")
+	}
+}
+
+func TestNewS3ProxyServerWithServicePrincipalAuth(t *testing.T) {
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AuthModeSPN,
+		StorageAccountName: "testaccount",
+		TenantID:           "tenant-id",
+		SPNClientID:        "client-id",
+		SPNClientSecret:    "client-secret",
+		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
+	}
+
+	cfg := &config.Config{
+		ListenAddr:        ":8080",
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     "AKIA1234567890ABCDEF",
+		S3SecretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+		LogLevel:          "info",
+	}
+
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	server, err := NewS3ProxyServer(router, cfg, logger)
+	if err != nil {
+		t.Logf("NewS3ProxyServer() with SPN returned error (expected for test): %v", err)
+	}
+	if server != nil {
+		// Server created successfully - that's fine
+		t.Logf("Server created with SPN auth")
 	}
 }

@@ -10,9 +10,8 @@ type Config struct {
 	// HTTP Server
 	ListenAddr string
 
-	// Azure Storage
-	AzureStorageAccount string
-	AzureStorageKey     string
+	// Azure Storage Authentication (flexible, supports multiple auth methods)
+	AzureAuth *AzureAuthConfig
 
 	// S3 Auth
 	S3AccessKeyID     string
@@ -24,13 +23,18 @@ type Config struct {
 
 // LoadConfig loads configuration from environment variables
 func LoadConfig() (*Config, error) {
+	// Load Azure authentication config (supports multiple auth modes)
+	azureAuth, err := LoadAzureAuthConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load Azure authentication config: %w", err)
+	}
+
 	cfg := &Config{
-		ListenAddr:          getEnv("LISTEN_ADDR", ":8080"),
-		AzureStorageAccount: getEnvRequired("AZURE_STORAGE_ACCOUNT"),
-		AzureStorageKey:     getEnvRequired("AZURE_STORAGE_KEY"),
-		S3AccessKeyID:       getEnvRequired("S3_ACCESS_KEY"),
-		S3SecretAccessKey:   getEnvRequired("S3_SECRET_KEY"),
-		LogLevel:            getEnv("LOG_LEVEL", "info"),
+		ListenAddr:        getEnv("LISTEN_ADDR", ":8080"),
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     getEnvRequired("S3_ACCESS_KEY"),
+		S3SecretAccessKey: getEnvRequired("S3_SECRET_KEY"),
+		LogLevel:          getEnv("LOG_LEVEL", "info"),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -42,11 +46,8 @@ func LoadConfig() (*Config, error) {
 
 // Validate validates the configuration
 func (c *Config) Validate() error {
-	if c.AzureStorageAccount == "" {
-		return fmt.Errorf("AZURE_STORAGE_ACCOUNT is required")
-	}
-	if c.AzureStorageKey == "" {
-		return fmt.Errorf("AZURE_STORAGE_KEY is required")
+	if c.AzureAuth == nil {
+		return fmt.Errorf("azure authentication config is required")
 	}
 	if c.S3AccessKeyID == "" {
 		return fmt.Errorf("S3_ACCESS_KEY is required")

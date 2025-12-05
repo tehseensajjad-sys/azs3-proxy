@@ -1,49 +1,50 @@
 package models
 
 import (
-	"errors"
 	"testing"
 )
 
-func TestAWSErrorToS3Error(t *testing.T) {
+func TestAzureErrorToS3(t *testing.T) {
 	tests := []struct {
-		name    string
-		awsErr  error
-		wantErr bool
-		wantCode string
+		name     string
+		azureErr string
+		expected S3ErrorCode
 	}{
-		{name: "nil error", awsErr: nil, wantErr: false},
-		{name: "not found error", awsErr: errors.New("NotFound"), wantErr: false, wantCode: "404"},
-		{name: "access denied error", awsErr: errors.New("AccessDenied"), wantErr: false, wantCode: "403"},
-		{name: "unknown error", awsErr: errors.New("UnknownError"), wantErr: true},
+		{name: "container not found", azureErr: "ContainerNotFound", expected: NoSuchBucket},
+		{name: "blob not found", azureErr: "BlobNotFound", expected: NoSuchKey},
+		{name: "container already exists", azureErr: "ContainerAlreadyExists", expected: BucketAlreadyExists},
+		{name: "authorization error", azureErr: "AuthorizationPermissionMismatch", expected: AccessDenied},
+		{name: "invalid name", azureErr: "InvalidName", expected: InvalidBucketName},
+		{name: "unknown error", azureErr: "UnknownError", expected: InternalError},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s3Err := AWSErrorToS3Error(tt.awsErr)
-			if (s3Err != nil) != tt.wantErr {
-				t.Errorf("AWSErrorToS3Error() error = %v, wantErr %v", s3Err, tt.wantErr)
+			code := AzureErrorToS3(tt.azureErr)
+			if code != tt.expected {
+				t.Errorf("AzureErrorToS3() got %v, want %v", code, tt.expected)
 			}
 		})
 	}
 }
 
-func TestS3ErrorStatusCode(t *testing.T) {
+func TestS3ErrorHTTPStatus(t *testing.T) {
 	tests := []struct {
-		name       string
-		err        error
-		wantCode   int
+		name     string
+		err      *S3Error
+		expected int
 	}{
-		{name: "nil error", err: nil, wantCode: 200},
-		{name: "not found error", err: &S3Error{Code: "NoSuchKey", HTTPCode: 404}, wantCode: 404},
-		{name: "access denied error", err: &S3Error{Code: "AccessDenied", HTTPCode: 403}, wantCode: 403},
+		{name: "no such key", err: &S3Error{Code: NoSuchKey}, expected: 404},
+		{name: "access denied", err: &S3Error{Code: AccessDenied}, expected: 403},
+		{name: "bucket already exists", err: &S3Error{Code: BucketAlreadyExists}, expected: 409},
+		{name: "internal error", err: &S3Error{Code: InternalError}, expected: 500},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code := S3ErrorStatusCode(tt.err)
-			if code != tt.wantCode {
-				t.Errorf("S3ErrorStatusCode() got %v, want %v", code, tt.wantCode)
+			code := tt.err.HTTPStatus()
+			if code != tt.expected {
+				t.Errorf("HTTPStatus() got %v, want %v", code, tt.expected)
 			}
 		})
 	}

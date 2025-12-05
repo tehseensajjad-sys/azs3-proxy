@@ -8,6 +8,9 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
+	"go.uber.org/zap"
+
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
 )
 
 type AzureBlobBackend struct {
@@ -22,6 +25,17 @@ func NewAzureBlobBackend(connectionString string) (*AzureBlobBackend, error) {
 	return &AzureBlobBackend{client: client}, nil
 }
 
+// NewAzureBlobBackendWithAuth creates an Azure Blob backend using flexible authentication
+// Supports multiple auth modes: account key, SAS, MSI, SPN, federated token, Azure CLI
+func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap.Logger) (*AzureBlobBackend, error) {
+	ctx := context.Background()
+	client, err := BuildClientFromCredential(ctx, authConfig, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build azure blob client: %w", err)
+	}
+	return &AzureBlobBackend{client: client}, nil
+}
+
 func (ab *AzureBlobBackend) ListBuckets(ctx context.Context) ([]string, error) {
 	var buckets []string
 	pager := ab.client.NewListContainersPager(nil)
@@ -31,8 +45,8 @@ func (ab *AzureBlobBackend) ListBuckets(ctx context.Context) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("list containers failed: %w", err)
 		}
-		if resp.ContainerList.Containers != nil {
-			for _, c := range resp.ContainerList.Containers {
+		if resp.ListContainersSegmentResponse.ContainerItems != nil {
+			for _, c := range resp.ListContainersSegmentResponse.ContainerItems {
 				if c.Name != nil {
 					buckets = append(buckets, *c.Name)
 				}
@@ -59,7 +73,7 @@ func (ab *AzureBlobBackend) DeleteBucket(ctx context.Context, bucketName string)
 }
 
 func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
-	_, err := ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey).Upload(ctx, data, nil)
+	_, err := ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey).UploadStream(ctx, data, nil)
 	if err != nil {
 		return fmt.Errorf("upload blob failed: %w", err)
 	}
@@ -67,7 +81,7 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 }
 
 func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
-	resp, err := ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey).Download(ctx, nil)
+	resp, err := ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey).DownloadStream(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("download blob failed: %w", err)
 	}

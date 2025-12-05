@@ -5,9 +5,9 @@ import (
 	"io"
 )
 
-// Backend defines the interface for storage backend implementations
+// StorageBackend defines the interface for storage backend implementations
 // that translate S3 operations to cloud-specific operations
-type Backend interface {
+type StorageBackend interface {
 	// Bucket operations
 	ListBuckets(ctx context.Context) ([]string, error)
 	CreateBucket(ctx context.Context, bucketName string) error

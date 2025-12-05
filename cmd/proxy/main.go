@@ -34,7 +34,7 @@ func main() {
 	router := chi.NewRouter()
 
 	// Initialize S3 proxy server
-	s3Server, err := server.NewS3ProxyServer(router, cfg, logger)
+	_, err = server.NewS3ProxyServer(router, cfg, logger)
 	if err != nil {
 		logger.Fatal("failed to create S3 proxy server", zap.Error(err))
 	}
@@ -45,8 +45,8 @@ func main() {
 		Handler: router,
 		// Add timeouts
 		ReadHeaderTimeout: 30 * time.Second,
-		ReadTimeout:      60 * time.Second,
-		WriteTimeout:     60 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      60 * time.Second,
 	}
 
 	// Start server in a goroutine
