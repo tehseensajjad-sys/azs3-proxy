@@ -15,16 +15,19 @@ import (
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/handler"
 )
 
-// S3ProxyServer represents the S3 proxy server
+// S3ProxyServer represents the HTTP server that proxies S3 API requests to Azure Blob Storage.
+// It handles routing, request validation, and coordinates backend storage operations.
 type S3ProxyServer struct {
-	router  *chi.Mux
-	config  *config.Config
-	logger  *zap.Logger
-	backend backend.StorageBackend
-	auth    *auth.AuthVerifier
+	router  *chi.Mux               // Chi router for HTTP request routing
+	config  *config.Config         // Configuration containing auth and server settings
+	logger  *zap.Logger            // Logger for request and error logging
+	backend backend.StorageBackend // Storage backend implementation (Azure Blob Storage)
+	auth    *auth.AuthVerifier     // AWS SigV4 signature verifier
 }
 
-// NewS3ProxyServer creates and initializes a new S3 proxy server
+// NewS3ProxyServer creates and initializes a new S3 proxy server with the provided configuration.
+// It sets up the storage backend, authentication verifier, middleware, and routes.
+// Returns error if backend initialization fails.
 func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger) (*S3ProxyServer, error) {
 	s := &S3ProxyServer{
 		router: router,
@@ -32,10 +35,10 @@ func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger) (
 		logger: logger,
 	}
 
-	// Initialize S3 authentication verifier
+	// Initialize the AWS SigV4 signature verifier with S3 credentials
 	s.auth = auth.NewAuthVerifier(cfg.S3AccessKeyID, cfg.S3SecretAccessKey)
 
-	// Initialize Azure Blob backend with flexible authentication
+	// Initialize the Azure Blob Storage backend with configured authentication method
 	backendImpl, err := azureblob.NewAzureBlobBackendWithAuth(cfg.AzureAuth, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize azure blob backend: %w", err)
@@ -43,129 +46,168 @@ func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger) (
 
 	s.backend = backendImpl
 
-	// Log auth mode being used
-	logger.Info("azure authentication initialized", zap.String("auth_mode", cfg.AzureAuth.Mode.String()), zap.String("storage_account", cfg.AzureAuth.StorageAccountName))
+	// Log which authentication method is being used for Azure
+	logger.Info("azure authentication initialized",
+		zap.String("auth_mode", cfg.AzureAuth.Mode.String()),
+		zap.String("storage_account", cfg.AzureAuth.StorageAccountName))
 
-	// Add middleware
+	// Register all HTTP middleware (logging, recovery, authentication)
 	s.registerMiddleware()
 
-	// Register routes
+	// Register all S3 API routes
 	s.registerRoutes()
 
 	return s, nil
 }
 
-// registerMiddleware registers all middleware
+// registerMiddleware registers all HTTP middleware in the correct order.
+// Middleware is executed in order: Logger -> Recoverer -> SigV4 Auth
 func (s *S3ProxyServer) registerMiddleware() {
+	// Standard logging middleware for all requests
 	s.router.Use(middleware.Logger)
+
+	// Panic recovery middleware to prevent server crashes
 	s.router.Use(middleware.Recoverer)
-	// Add SigV4 auth middleware
+
+	// Custom AWS SigV4 signature verification middleware
 	s.router.Use(s.authMiddleware)
 }
 
-// authMiddleware validates SigV4 signatures
+// authMiddleware validates incoming requests with AWS SigV4 signature verification.
+// Skips authentication for health check endpoints and logs all request details.
+// Returns 403 Forbidden if signature verification fails.
 func (s *S3ProxyServer) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for health check endpoints
+		// Skip authentication for health check endpoints
 		if r.URL.Path == "/health" || r.URL.Path == "/ping" {
-			s.logger.Debug("health check request", zap.String("path", r.URL.Path), zap.String("method", r.Method))
+			s.logger.Debug("health check request",
+				zap.String("path", r.URL.Path),
+				zap.String("method", r.Method))
+
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Log request details
+		// Log request details for debugging and monitoring
 		s.logger.Debug("processing request",
 			zap.String("method", r.Method),
 			zap.String("path", r.URL.Path),
 			zap.String("query", r.URL.RawQuery),
 			zap.String("remote_addr", r.RemoteAddr))
 
-		// Verify signature
+		// Verify AWS SigV4 signature
 		if err := s.auth.VerifySignature(r); err != nil {
 			s.logger.Warn("signature verification failed",
 				zap.Error(err),
 				zap.String("method", r.Method),
 				zap.String("path", r.URL.Path),
 				zap.String("remote_addr", r.RemoteAddr))
+
+			// Return S3-formatted error response
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>The request signature we calculated does not match the signature you provided.</Message></Error>`))
 			return
 		}
 
-		s.logger.Debug("signature verified", zap.String("method", r.Method), zap.String("path", r.URL.Path))
+		// Log successful signature verification
+		s.logger.Debug("signature verified",
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path))
+
 		next.ServeHTTP(w, r)
 	})
 }
 
-// registerRoutes registers all S3 API routes
+// registerRoutes registers all S3 API routes with their corresponding handler functions.
+// Routes are organized by HTTP method and path, with special handling for query parameters.
 func (s *S3ProxyServer) registerRoutes() {
+	// Create S3 API handler with backend and logger
 	s3Handler := handler.NewS3Handler(s.backend, s.logger)
 
-	// Health check endpoints (before auth)
+	// Health check endpoint (no authentication required)
 	s.router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 
-	// Bucket routes
-	s.router.Put("/{bucket}", s3Handler.CreateBucketHandler)
-	s.router.Delete("/{bucket}", s3Handler.DeleteBucketHandler)
+	// List all buckets
 	s.router.Get("/", s3Handler.ListBucketsHandler)
 
-	// Multipart upload listing (GET /{bucket}?uploads)
+	// Bucket operations: GET with query parameters
 	s.router.Get("/{bucket}", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("uploads") != "" {
+			// List multipart uploads in progress
 			s3Handler.ListMultipartUploadsHandler(w, r)
 		} else if r.URL.Query().Get("versioning") != "" {
+			// Get bucket versioning configuration
 			s3Handler.GetVersioningHandler(w, r)
 		} else if r.URL.Query().Get("versions") != "" {
+			// List all object versions in bucket
 			s3Handler.ListObjectVersionsHandler(w, r)
 		} else {
+			// List objects in bucket (default)
 			s3Handler.ListObjectsV2Handler(w, r)
 		}
 	})
 
-	// Bucket PUT with versioning support (PUT /{bucket}?versioning)
+	// Bucket operations: PUT for creation and configuration
 	s.router.Put("/{bucket}", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("versioning") != "" {
+			// Enable versioning on bucket
 			s3Handler.EnableVersioningHandler(w, r)
 		} else {
+			// Create new bucket
 			s3Handler.CreateBucketHandler(w, r)
 		}
 	})
 
-	// Object routes - must come after bucket routes to avoid conflicts
+	// Delete bucket
+	s.router.Delete("/{bucket}", s3Handler.DeleteBucketHandler)
+
+	// Object operations: GET with query parameters
+	// Must come after bucket routes to avoid path conflicts
 	s.router.Get("/{bucket}/*", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("uploadId") != "" {
+			// List parts of an active multipart upload
 			s3Handler.ListPartsHandler(w, r)
 		} else if r.URL.Query().Get("versionId") != "" {
+			// Get specific version of an object
 			s3Handler.GetObjectVersionHandler(w, r)
 		} else {
+			// Get object (current version)
 			s3Handler.GetObjectHandler(w, r)
 		}
 	})
 
+	// Object operations: PUT for uploads and multipart
 	s.router.Put("/{bucket}/*", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("uploadId") != "" && r.URL.Query().Get("partNumber") != "" {
+			// Upload a part in a multipart upload
 			s3Handler.UploadPartHandler(w, r)
 		} else {
+			// Put object (single upload)
 			s3Handler.PutObjectHandler(w, r)
 		}
 	})
 
+	// Object operations: HEAD for metadata
 	s.router.Head("/{bucket}/*", s3Handler.HeadObjectHandler)
 
+	// Object operations: DELETE with query parameters
 	s.router.Delete("/{bucket}/*", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("uploadId") != "" {
+			// Abort an in-progress multipart upload
 			s3Handler.AbortMultipartUploadHandler(w, r)
 		} else if r.URL.Query().Get("versionId") != "" {
+			// Delete specific version of an object
 			s3Handler.DeleteObjectVersionHandler(w, r)
 		} else {
+			// Delete object (add delete marker if versioning enabled)
 			s3Handler.DeleteObjectHandler(w, r)
 		}
 	})
 
-	// Multipart upload routes
+	// Object operations: POST for multipart upload completion
 	s.router.Post("/{bucket}/*", s3Handler.PostObjectHandler)
 }

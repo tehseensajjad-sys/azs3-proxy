@@ -15,13 +15,15 @@ import (
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/models"
 )
 
-// S3Handler handles S3 API requests
+// S3Handler handles all S3 API requests and converts them to backend storage operations.
+// It acts as a bridge between S3 API semantics and the underlying storage backend.
 type S3Handler struct {
-	backend backend.StorageBackend
-	logger  *zap.Logger
+	backend backend.StorageBackend // Storage backend implementation (Azure Blob Storage)
+	logger  *zap.Logger            // Logger for request and error logging
 }
 
-// NewS3Handler creates a new S3 handler
+// NewS3Handler creates and returns a new S3 API handler instance.
+// It requires a storage backend implementation and logger for operation.
 func NewS3Handler(backend backend.StorageBackend, logger *zap.Logger) *S3Handler {
 	return &S3Handler{
 		backend: backend,
@@ -29,11 +31,13 @@ func NewS3Handler(backend backend.StorageBackend, logger *zap.Logger) *S3Handler
 	}
 }
 
-// Helper function to write error response
+// writeErrorResponse writes an S3-formatted XML error response to the client.
+// It sets appropriate HTTP status codes and formats the error message in S3 XML format.
 func (h *S3Handler) writeErrorResponse(w http.ResponseWriter, err *models.S3Error) {
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(err.HTTPStatus())
 
+	// Build S3-compatible error response
 	resp := models.ErrorResponse{
 		Code:      string(err.Code),
 		Message:   err.Message,
@@ -43,7 +47,11 @@ func (h *S3Handler) writeErrorResponse(w http.ResponseWriter, err *models.S3Erro
 
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
-} // Helper function to extract bucket and object key from request
+}
+
+// extractBucketAndKey extracts the bucket name and object key from the request URL.
+// The key has the leading "/" stripped to match S3 semantics.
+// Example: /bucket/folder/object.txt -> bucket: "bucket", key: "folder/object.txt"
 func extractBucketAndKey(r *http.Request) (string, string) {
 	bucket := chi.URLParam(r, "bucket")
 	key := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
@@ -52,21 +60,26 @@ func extractBucketAndKey(r *http.Request) (string, string) {
 
 // Bucket Operations
 
-// ListBucketsHandler handles GET / (ListBuckets)
+// ListBucketsHandler handles GET / (S3 ListBuckets operation).
+// Returns all buckets owned by the account in S3 XML format.
 func (h *S3Handler) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("ListBuckets request")
 
+	// Fetch list of all buckets from backend storage
 	buckets, err := h.backend.ListBuckets(r.Context())
 	if err != nil {
 		h.logger.Error("failed to list buckets", zap.Error(err))
+
 		s3Err := &models.S3Error{
 			Code:    models.InternalError,
 			Message: "Failed to list buckets",
 		}
+
 		h.writeErrorResponse(w, s3Err)
 		return
 	}
 
+	// Convert bucket names to S3 bucket list format
 	bucketList := make([]models.Bucket, len(buckets))
 	for i, name := range buckets {
 		bucketList[i] = models.Bucket{
@@ -75,6 +88,7 @@ func (h *S3Handler) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Build S3 ListBuckets response with owner information
 	resp := models.ListBucketsResponse{
 		Buckets: bucketList,
 		Owner: models.Owner{
@@ -89,14 +103,17 @@ func (h *S3Handler) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(xmlData)
 }
 
-// CreateBucketHandler handles PUT /{bucket}
+// CreateBucketHandler handles PUT /{bucket} (S3 CreateBucket operation).
+// Creates a new bucket with the specified name.
 func (h *S3Handler) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	h.logger.Debug("CreateBucket request", zap.String("bucket", bucket))
 
+	// Create bucket in backend storage
 	err := h.backend.CreateBucket(r.Context(), bucket)
 	if err != nil {
 		h.logger.Error("failed to create bucket", zap.Error(err), zap.String("bucket", bucket))
+
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -104,6 +121,7 @@ func (h *S3Handler) CreateBucketHandler(w http.ResponseWriter, r *http.Request) 
 			Message:  errMsg,
 			Resource: "/" + bucket,
 		}
+
 		h.writeErrorResponse(w, s3Err)
 		return
 	}
@@ -111,14 +129,17 @@ func (h *S3Handler) CreateBucketHandler(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
-// DeleteBucketHandler handles DELETE /{bucket}
+// DeleteBucketHandler handles DELETE /{bucket} (S3 DeleteBucket operation).
+// Deletes a bucket (must be empty, no objects).
 func (h *S3Handler) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	h.logger.Debug("DeleteBucket request", zap.String("bucket", bucket))
 
+	// Delete bucket from backend storage
 	err := h.backend.DeleteBucket(r.Context(), bucket)
 	if err != nil {
 		h.logger.Error("failed to delete bucket", zap.Error(err), zap.String("bucket", bucket))
+
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -126,6 +147,7 @@ func (h *S3Handler) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) 
 			Message:  errMsg,
 			Resource: "/" + bucket,
 		}
+
 		h.writeErrorResponse(w, s3Err)
 		return
 	}
@@ -133,15 +155,18 @@ func (h *S3Handler) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListObjectsV2Handler handles GET /{bucket} with list-type=2
+// ListObjectsV2Handler handles GET /{bucket} (S3 ListObjectsV2 operation).
+// Lists objects in the bucket with optional prefix filter.
 func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	prefix := r.URL.Query().Get("prefix")
 	h.logger.Debug("ListObjectsV2 request", zap.String("bucket", bucket), zap.String("prefix", prefix))
 
+	// Fetch objects from backend with optional prefix filtering
 	objects, err := h.backend.ListObjects(r.Context(), bucket, prefix)
 	if err != nil {
 		h.logger.Error("failed to list objects", zap.Error(err), zap.String("bucket", bucket))
+
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -149,10 +174,12 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 			Message:  errMsg,
 			Resource: "/" + bucket,
 		}
+
 		h.writeErrorResponse(w, s3Err)
 		return
 	}
 
+	// Convert object names to S3 object list format
 	objList := make([]models.Object, len(objects))
 	for i, key := range objects {
 		objList[i] = models.Object{
@@ -164,6 +191,7 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Build and return S3 ListObjects response
 	resp := models.ListObjectsResponse{
 		Name:        bucket,
 		Prefix:      prefix,
@@ -180,7 +208,8 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 
 // Object Operations
 
-// PutObjectHandler handles PUT /{bucket}/{key}
+// PutObjectHandler handles PUT /{bucket}/{key} (S3 PutObject operation).
+// Uploads a complete object to the bucket. Supports single-part uploads.
 func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	bucket, key := extractBucketAndKey(r)
 	contentLength := r.ContentLength
@@ -189,8 +218,8 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		zap.String("key", key),
 		zap.Int64("content_length", contentLength))
 
+	// Ensure this is an object operation, not a bucket operation
 	if key == "" {
-		// This is a bucket operation, not an object operation
 		h.CreateBucketHandler(w, r)
 		return
 	}

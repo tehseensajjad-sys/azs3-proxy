@@ -5,57 +5,74 @@ import (
 	"os"
 )
 
-// AzureAuthMode represents the authentication method for Azure
+// AzureAuthMode represents the authentication method for Azure Blob Storage.
+// It determines which credential type and SDK authentication flow to use.
 type AzureAuthMode string
 
 const (
-	// AuthModeAccountKey uses storage account name and key
+	// AuthModeAccountKey uses storage account name and key.
+	// Requires: AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_KEY
 	AuthModeAccountKey AzureAuthMode = "account_key"
-	// AuthModeSAS uses Shared Access Signature token
+
+	// AuthModeSAS uses Shared Access Signature token.
+	// Requires: AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_SAS_TOKEN
 	AuthModeSAS AzureAuthMode = "sas"
-	// AuthModeMSI uses Managed Service Identity
+
+	// AuthModeMSI uses Managed Service Identity (system or user-assigned).
+	// Optional: AZURE_CLIENT_ID (for user-assigned MSI)
 	AuthModeMSI AzureAuthMode = "msi"
-	// AuthModeSPN uses Service Principal with client secret
+
+	// AuthModeSPN uses Service Principal with client secret.
+	// Requires: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
 	AuthModeSPN AzureAuthMode = "spn"
-	// AuthModeFederatedToken uses OpenID Connect federated token
+
+	// AuthModeFederatedToken uses OpenID Connect federated token.
+	// Requires: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE
 	AuthModeFederatedToken AzureAuthMode = "federated_token"
-	// AuthModeAzCLI uses Azure CLI cached credentials
+
+	// AuthModeAzCLI uses Azure CLI cached credentials.
+	// No additional configuration required, uses ~/.azure/credentials
 	AuthModeAzCLI AzureAuthMode = "az_cli"
 )
 
-// AzureAuthConfig holds Azure authentication configuration
+// AzureAuthConfig holds all Azure authentication configuration needed to connect to Azure Blob Storage.
+// It supports six authentication methods, with fields populated based on the detected authentication mode.
 type AzureAuthConfig struct {
-	// Common
-	Mode               AzureAuthMode
-	SubscriptionID     string
-	TenantID           string
-	StorageAccountName string
-	StorageAccountURL  string
+	// Common fields used by all authentication modes
+	Mode               AzureAuthMode // The authentication method being used
+	SubscriptionID     string        // Azure subscription ID (optional)
+	TenantID           string        // Azure tenant ID (required for SPN and federated token auth)
+	StorageAccountName string        // Azure storage account name (required)
+	StorageAccountURL  string        // Full URL to storage account (auto-generated if not provided)
 
-	// Account Key auth
-	AccountKey string
+	// Account Key authentication fields
+	AccountKey string // Storage account access key
 
-	// SAS auth
-	SASToken string
+	// SAS authentication fields
+	SASToken string // Shared Access Signature token
 
-	// MSI auth
-	MSIClientID string // Optional client ID for user-assigned MSI
+	// Managed Service Identity (MSI) authentication fields
+	MSIClientID string // Optional client ID for user-assigned MSI (not needed for system-assigned)
 
-	// SPN auth
-	SPNClientID     string
-	SPNClientSecret string
-	SPNObjectID     string
+	// Service Principal (SPN) authentication fields
+	SPNClientID     string // Service principal application ID
+	SPNClientSecret string // Service principal client secret
+	SPNObjectID     string // Service principal object ID (optional)
 
-	// Federated Token auth
-	FederatedTokenFile string
-	FederatedClientID  string
+	// Federated Token authentication fields
+	FederatedTokenFile string // Path to OIDC token file
+	FederatedClientID  string // Client ID for federated token
 
-	// AzCLI auth (uses default Azure CLI config)
-	// No additional fields needed
+	// Azure CLI authentication
+	// No additional fields needed - uses ~/.azure/credentials from logged-in user
 }
 
-// LoadAzureAuthConfig loads Azure authentication configuration from environment variables
+// LoadAzureAuthConfig loads all Azure authentication configuration from environment variables.
+// It auto-detects the authentication mode based on which credentials are available,
+// validates that all required fields for that mode are present, and builds the storage account URL.
+// Returns error if no valid authentication method is configured or required fields are missing.
 func LoadAzureAuthConfig() (*AzureAuthConfig, error) {
+	// Initialize configuration with all environment variables that might be needed
 	cfg := &AzureAuthConfig{
 		SubscriptionID:     getEnv("AZURE_SUBSCRIPTION_ID", ""),
 		TenantID:           getEnv("AZURE_TENANT_ID", ""),
@@ -69,7 +86,7 @@ func LoadAzureAuthConfig() (*AzureAuthConfig, error) {
 		FederatedTokenFile: getEnv("AZURE_FEDERATED_TOKEN_FILE", ""),
 	}
 
-	// Detect authentication mode
+	// Detect which authentication mode should be used based on environment variables
 	authMode := detectAuthMode()
 	if authMode == "" {
 		return nil, fmt.Errorf("no Azure authentication method configured. Please set one of: AZURE_STORAGE_KEY (account key), AZURE_STORAGE_SAS_TOKEN (SAS), AZURE_USE_MSI (MSI), AZURE_CLIENT_ID+AZURE_CLIENT_SECRET (SPN), AZURE_FEDERATED_TOKEN_FILE (federated), or AZURE_USE_CLI_AUTH (Azure CLI)")
@@ -77,12 +94,12 @@ func LoadAzureAuthConfig() (*AzureAuthConfig, error) {
 
 	cfg.Mode = authMode
 
-	// Mode-specific validation
+	// Validate that all required fields for the detected mode are present
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	// Build storage account URL if not provided
+	// Build storage account URL if not explicitly provided
 	if cfg.StorageAccountURL == "" {
 		cfg.StorageAccountURL = fmt.Sprintf("https://%s.blob.core.windows.net", cfg.StorageAccountName)
 	}
@@ -90,42 +107,42 @@ func LoadAzureAuthConfig() (*AzureAuthConfig, error) {
 	return cfg, nil
 }
 
-// detectAuthMode detects which authentication mode to use based on environment variables
+// detectAuthMode detects which authentication mode to use based on available environment variables.
+// It checks for credentials in priority order: account key, SAS, federated token, SPN, MSI, Azure CLI.
+// Returns empty string if no valid authentication method is found.
 func detectAuthMode() AzureAuthMode {
-	// Check in order of precedence
-
-	// 1. Account Key (most explicit and simple)
+	// 1. Check for account key authentication (most explicit and simple method)
 	if getEnv("AZURE_STORAGE_KEY", "") != "" {
 		return AuthModeAccountKey
 	}
 
-	// 2. SAS Token
+	// 2. Check for SAS token authentication
 	if getEnv("AZURE_STORAGE_SAS_TOKEN", "") != "" {
 		return AuthModeSAS
 	}
 
-	// 3. Federated Token (for OIDC)
+	// 3. Check for federated token authentication (OIDC)
 	if getEnv("AZURE_FEDERATED_TOKEN_FILE", "") != "" {
 		return AuthModeFederatedToken
 	}
 
-	// 4. Service Principal (client secret)
+	// 4. Check for Service Principal authentication (client secret)
 	if getEnv("AZURE_CLIENT_ID", "") != "" && getEnv("AZURE_CLIENT_SECRET", "") != "" && getEnv("AZURE_TENANT_ID", "") != "" {
 		return AuthModeSPN
 	}
 
-	// 5. Managed Identity (can be system or user-assigned)
+	// 5. Check for Managed Identity (system or user-assigned)
 	if getEnv("AZURE_USE_MSI", "") == "true" || getEnv("IMDS_ENDPOINT", "") != "" {
 		return AuthModeMSI
 	}
 
-	// 6. Azure CLI (default fallback if nothing else is set)
+	// 6. Check for Azure CLI authentication
 	if getEnv("AZURE_USE_CLI_AUTH", "") == "true" {
 		return AuthModeAzCLI
 	}
 
-	// If no explicit preference and Azure SDK env vars are present, use MSI as fallback
-	// (Azure SDK will try MSI by default)
+	// Fallback: If any Azure SDK environment variables are present without explicit config, try MSI
+	// (Azure SDK will attempt MSI by default if these env vars are set)
 	if getEnv("AZURE_CLIENT_ID", "") != "" || getEnv("IMDS_ENDPOINT", "") != "" {
 		return AuthModeMSI
 	}
@@ -133,31 +150,35 @@ func detectAuthMode() AzureAuthMode {
 	return ""
 }
 
-// Validate validates the authentication configuration
+// Validate validates that all required configuration is present for the configured authentication mode.
+// It ensures storage account name is set and performs mode-specific validation.
+// Returns error if any required fields are missing.
 func (c *AzureAuthConfig) Validate() error {
+	// Storage account name is required for all authentication modes
 	if c.StorageAccountName == "" {
 		return fmt.Errorf("AZURE_STORAGE_ACCOUNT is required")
 	}
 
+	// Validate fields specific to the authentication mode being used
 	switch c.Mode {
 	case AuthModeAccountKey:
+		// Account key mode requires the storage account access key
 		if c.AccountKey = getEnv("AZURE_STORAGE_KEY", ""); c.AccountKey == "" {
 			return fmt.Errorf("AZURE_STORAGE_KEY is required for account key authentication")
 		}
 
 	case AuthModeSAS:
+		// SAS mode requires a Shared Access Signature token
 		if c.SASToken = getEnv("AZURE_STORAGE_SAS_TOKEN", ""); c.SASToken == "" {
 			return fmt.Errorf("AZURE_STORAGE_SAS_TOKEN is required for SAS authentication")
 		}
 
 	case AuthModeMSI:
-		// MSI can work without explicit client ID (system-assigned)
-		// but user-assigned MSI requires AZURE_CLIENT_ID
-		if c.MSIClientID != "" {
-			// Validate format if provided
-		}
+		// MSI mode works without explicit client ID (uses system-assigned identity)
+		// but user-assigned MSI requires AZURE_CLIENT_ID to specify which identity to use
 
 	case AuthModeSPN:
+		// Service Principal mode requires three fields: client ID, client secret, and tenant ID
 		if c.SPNClientID == "" {
 			return fmt.Errorf("AZURE_CLIENT_ID is required for Service Principal authentication")
 		}
@@ -169,9 +190,11 @@ func (c *AzureAuthConfig) Validate() error {
 		}
 
 	case AuthModeFederatedToken:
+		// Federated token mode requires token file, client ID, and tenant ID
 		if c.FederatedTokenFile == "" {
 			return fmt.Errorf("AZURE_FEDERATED_TOKEN_FILE is required for federated token authentication")
 		}
+		// Verify the token file actually exists and is readable
 		if _, err := os.Stat(c.FederatedTokenFile); err != nil {
 			return fmt.Errorf("federated token file not readable: %w", err)
 		}
@@ -184,7 +207,7 @@ func (c *AzureAuthConfig) Validate() error {
 
 	case AuthModeAzCLI:
 		// Azure CLI authentication doesn't require additional configuration
-		// It will use the cached credentials from `az login`
+		// It will automatically use the cached credentials from `az login`
 
 	default:
 		return fmt.Errorf("unknown authentication mode: %s", c.Mode)
@@ -193,7 +216,8 @@ func (c *AzureAuthConfig) Validate() error {
 	return nil
 }
 
-// String returns a string representation of the auth mode (safe for logging)
+// String returns a string representation of the authentication mode (safe for logging).
+// This is useful for logging which auth method is being used without exposing credentials.
 func (m AzureAuthMode) String() string {
 	return string(m)
 }

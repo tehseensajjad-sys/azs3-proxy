@@ -19,39 +19,48 @@ import (
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
 )
 
+// readSeekCloser wraps bytes.Reader to implement io.ReadSeekCloser interface.
+// Used for objects stored in memory that need to be read multiple times or seeked.
 type readSeekCloser struct {
 	*bytes.Reader
 }
 
+// Close is a no-op for in-memory byte readers.
 func (r *readSeekCloser) Close() error {
 	return nil
 }
 
+// AzureBlobBackend implements the storage backend interface using Azure Blob Storage.
+// It handles all blob operations, multipart uploads, and bucket versioning.
 type AzureBlobBackend struct {
-	client                *azblob.Client
-	multipartUploads      map[string]*MultipartUploadMetadata
-	multipartUploadsMutex sync.RWMutex
-	versionedBuckets      map[string]bool // buckets with versioning enabled
-	versionedBucketsMutex sync.RWMutex
+	client                *azblob.Client                      // Azure Blob Storage client
+	multipartUploads      map[string]*MultipartUploadMetadata // Ongoing multipart uploads
+	multipartUploadsMutex sync.RWMutex                        // Thread-safe access to multipart uploads
+	versionedBuckets      map[string]bool                     // Tracks buckets with versioning enabled
+	versionedBucketsMutex sync.RWMutex                        // Thread-safe access to versioning state
 }
 
-// MultipartUploadMetadata stores metadata about an ongoing multipart upload
-// Uses Azure's staging blocks approach - parts are uploaded as blocks and finalized with PutBlockList
+// MultipartUploadMetadata stores metadata about an active multipart upload.
+// Azure Blob Storage uses a staging blocks approach: individual parts are uploaded as blocks,
+// then combined using PutBlockList to create the final blob.
 type MultipartUploadMetadata struct {
-	UploadID        string
-	BucketName      string
-	ObjectKey       string
-	BlockIDs        []string       // ordered list of block IDs
-	PartETagMap     map[int]string // part number -> etag (block ID)
-	Initiated       time.Time
-	BlockBlobClient *blockblob.Client
+	UploadID        string            // Unique ID for this multipart upload
+	BucketName      string            // Container name in Azure
+	ObjectKey       string            // Blob name in Azure
+	BlockIDs        []string          // Ordered list of block IDs (corresponding to part numbers)
+	PartETagMap     map[int]string    // Maps part number to block ID (etag equivalent)
+	Initiated       time.Time         // When the multipart upload was initiated
+	BlockBlobClient *blockblob.Client // Client for block blob operations
 }
 
+// NewAzureBlobBackend creates an Azure Blob backend using a connection string.
+// This is a basic constructor; NewAzureBlobBackendWithAuth is preferred for flexible authentication.
 func NewAzureBlobBackend(connectionString string) (*AzureBlobBackend, error) {
 	client, err := azblob.NewClientFromConnectionString(connectionString, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create azure client: %w", err)
 	}
+
 	return &AzureBlobBackend{
 		client:           client,
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
@@ -59,23 +68,29 @@ func NewAzureBlobBackend(connectionString string) (*AzureBlobBackend, error) {
 	}, nil
 }
 
-// NewAzureBlobBackendWithAuth creates an Azure Blob backend using flexible authentication
-// Supports multiple auth modes: account key, SAS, MSI, SPN, federated token, Azure CLI
+// NewAzureBlobBackendWithAuth creates an Azure Blob backend using flexible authentication.
+// Supports six authentication methods: account key, SAS, MSI, SPN, federated token, and Azure CLI.
+// Logs authentication method and storage account for audit/debugging purposes.
 func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap.Logger) (*AzureBlobBackend, error) {
 	ctx := context.Background()
+
+	// Log initialization with auth method for debugging and audit
 	logger.Info("initializing Azure Blob backend",
 		zap.String("storage_account", authConfig.StorageAccountName),
 		zap.String("auth_mode", authConfig.Mode.String()))
 
+	// Build Azure client using the appropriate authentication credential
 	client, err := BuildClientFromCredential(ctx, authConfig, logger)
 	if err != nil {
 		logger.Error("failed to build azure blob client",
 			zap.Error(err),
 			zap.String("storage_account", authConfig.StorageAccountName),
 			zap.String("auth_mode", authConfig.Mode.String()))
+
 		return nil, fmt.Errorf("failed to build azure blob client: %w", err)
 	}
 
+	// Log successful initialization
 	logger.Info("Azure Blob backend initialized successfully",
 		zap.String("storage_account", authConfig.StorageAccountName),
 		zap.String("auth_mode", authConfig.Mode.String()))
@@ -87,15 +102,20 @@ func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 	}, nil
 }
 
+// ListBuckets returns all containers in the Azure Blob Storage account.
+// Containers in Azure Blob Storage correspond to buckets in S3.
 func (ab *AzureBlobBackend) ListBuckets(ctx context.Context) ([]string, error) {
 	var buckets []string
 	pager := ab.client.NewListContainersPager(nil)
 
+	// Iterate through all pages of container results
 	for pager.More() {
 		resp, err := pager.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("list containers failed: %w", err)
 		}
+
+		// Extract container names from the response
 		if resp.ListContainersSegmentResponse.ContainerItems != nil {
 			for _, c := range resp.ListContainersSegmentResponse.ContainerItems {
 				if c.Name != nil {
