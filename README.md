@@ -165,17 +165,81 @@ s3-azure-proxy/
 
 ## Configuration Reference
 
+### Server Configuration
+
 | Env Variable | Required | Default | Description |
 |---|---|---|---|
 | `LISTEN_ADDR` | No | `:8080` | HTTP server listen address |
-| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
-| `AZURE_STORAGE_KEY` | Yes | – | Storage account access key |
-| `S3_ACCESS_KEY` | Yes | – | S3 access key ID for clients |
-| `S3_SECRET_KEY` | Yes | – | S3 secret access key |
 | `LOG_LEVEL` | No | `info` | Logging level (debug, info, warn, error) |
 | `ENABLE_TLS` | No | `false` | Enable HTTPS/TLS support (true/false) |
 | `TLS_CERT_FILE` | Conditional | – | Path to TLS certificate file (required if ENABLE_TLS=true) |
 | `TLS_KEY_FILE` | Conditional | – | Path to TLS private key file (required if ENABLE_TLS=true) |
+
+### S3 Authentication
+
+| Env Variable | Required | Default | Description |
+|---|---|---|---|
+| `S3_ACCESS_KEY` | Yes | – | S3 access key ID for SigV4 authentication |
+| `S3_SECRET_KEY` | Yes | – | S3 secret access key for SigV4 authentication |
+
+### Azure Storage Authentication
+
+Azure storage supports multiple authentication methods. Choose **one** of the following:
+
+#### Account Key Authentication (Recommended for simplicity)
+
+| Env Variable | Required | Default | Description |
+|---|---|---|---|
+| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
+| `AZURE_STORAGE_KEY` | Yes | – | Storage account access key (for account key auth) |
+
+#### SAS Token Authentication
+
+| Env Variable | Required | Default | Description |
+|---|---|---|---|
+| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
+| `AZURE_STORAGE_SAS_TOKEN` | Yes | – | Shared Access Signature token |
+
+#### Managed Identity (MSI) Authentication
+
+| Env Variable | Required | Default | Description |
+|---|---|---|---|
+| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
+| `AZURE_USE_MSI` | Yes | – | Set to `true` to enable MSI authentication |
+| `AZURE_CLIENT_ID` | No | – | Client ID for user-assigned MSI (optional, uses system-assigned by default) |
+
+#### Service Principal Authentication
+
+| Env Variable | Required | Default | Description |
+|---|---|---|---|
+| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
+| `AZURE_TENANT_ID` | Yes | – | Azure AD tenant ID |
+| `AZURE_CLIENT_ID` | Yes | – | Service principal client ID |
+| `AZURE_CLIENT_SECRET` | Yes | – | Service principal client secret |
+
+#### Federated Token Authentication (OpenID Connect)
+
+| Env Variable | Required | Default | Description |
+|---|---|---|---|
+| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
+| `AZURE_CLIENT_ID` | Yes | – | Application client ID |
+| `AZURE_TENANT_ID` | Yes | – | Azure AD tenant ID |
+| `AZURE_FEDERATED_TOKEN_FILE` | Yes | – | Path to OIDC token file |
+
+#### Azure CLI Authentication
+
+| Env Variable | Required | Default | Description |
+|---|---|---|---|
+| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
+| `AZURE_USE_CLI_AUTH` | Yes | – | Set to `true` to use Azure CLI cached credentials |
+
+### Optional Azure Configuration
+
+| Env Variable | Required | Default | Description |
+|---|---|---|---|
+| `AZURE_STORAGE_URL` | No | – | Custom Azure storage URL (auto-generated from account name if not provided) |
+| `AZURE_SUBSCRIPTION_ID` | No | – | Azure subscription ID |
+| `AZURE_OBJECT_ID` | No | – | Service principal object ID |
 
 ## Usage Examples
 
