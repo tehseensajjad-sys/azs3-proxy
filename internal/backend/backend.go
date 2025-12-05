@@ -27,6 +27,13 @@ type StorageBackend interface {
 	AbortMultipartUpload(ctx context.Context, bucketName, objectKey, uploadID string) error
 	ListParts(ctx context.Context, bucketName, objectKey, uploadID string) ([]interface{}, error)
 	ListMultipartUploads(ctx context.Context, bucketName string) ([]interface{}, error)
+
+	// Versioning operations
+	EnableVersioning(ctx context.Context, bucketName string) error
+	GetVersioning(ctx context.Context, bucketName string) (enabled bool, err error)
+	ListObjectVersions(ctx context.Context, bucketName, prefix string) ([]interface{}, error)
+	GetObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error)
+	DeleteObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) error
 }
 
 // Part represents information about an uploaded part
@@ -41,4 +48,14 @@ type UploadInfo struct {
 	Key       string
 	UploadID  string
 	Initiated string
+}
+
+// ObjectVersion represents a specific version of an object
+type ObjectVersion struct {
+	Key       string
+	VersionID string
+	ETag      string
+	Size      int64
+	Modified  string
+	IsLatest  bool
 }

@@ -109,6 +109,47 @@ type UploadInfo struct {
 	StorageClass string `xml:"StorageClass"`
 }
 
+// VersioningConfiguration represents bucket versioning status
+type VersioningConfiguration struct {
+	XMLName xml.Name `xml:"VersioningConfiguration"`
+	Status  string   `xml:"Status"` // Enabled, Suspended, or empty
+}
+
+// ListObjectVersionsResponse represents the response for list object versions
+type ListObjectVersionsResponse struct {
+	XMLName             xml.Name           `xml:"ListVersionsResult"`
+	Name                string             `xml:"Name"`
+	Prefix              string             `xml:"Prefix"`
+	KeyMarker           string             `xml:"KeyMarker"`
+	VersionIDMarker     string             `xml:"VersionIdMarker"`
+	NextKeyMarker       string             `xml:"NextKeyMarker"`
+	NextVersionIDMarker string             `xml:"NextVersionIdMarker"`
+	MaxKeys             int                `xml:"MaxKeys"`
+	IsTruncated         bool               `xml:"IsTruncated"`
+	Versions            []ObjectVersionXML `xml:"Versions>Version"`
+	DeleteMarkers       []DeleteMarkerXML  `xml:"DeleteMarker"`
+}
+
+// ObjectVersionXML represents a single object version in XML response
+type ObjectVersionXML struct {
+	Key          string `xml:"Key"`
+	VersionID    string `xml:"VersionId"`
+	IsLatest     bool   `xml:"IsLatest"`
+	LastModified string `xml:"LastModified"`
+	ETag         string `xml:"ETag"`
+	Size         int64  `xml:"Size"`
+	StorageClass string `xml:"StorageClass"`
+}
+
+// DeleteMarkerXML represents a delete marker in version list
+type DeleteMarkerXML struct {
+	Key          string `xml:"Key"`
+	VersionID    string `xml:"VersionId"`
+	IsLatest     bool   `xml:"IsLatest"`
+	LastModified string `xml:"LastModified"`
+	Owner        Owner  `xml:"Owner"`
+}
+
 // ErrorResponse represents an S3 error response
 type ErrorResponse struct {
 	XMLName   xml.Name `xml:"Error"`

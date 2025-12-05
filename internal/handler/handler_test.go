@@ -29,6 +29,11 @@ type MockBackend struct {
 	AbortMultipartUploadFunc    func(ctx context.Context, bucketName, objectKey, uploadID string) error
 	ListPartsFunc               func(ctx context.Context, bucketName, objectKey, uploadID string) ([]interface{}, error)
 	ListMultipartUploadsFunc    func(ctx context.Context, bucketName string) ([]interface{}, error)
+	EnableVersioningFunc        func(ctx context.Context, bucketName string) error
+	GetVersioningFunc           func(ctx context.Context, bucketName string) (bool, error)
+	ListObjectVersionsFunc      func(ctx context.Context, bucketName, prefix string) ([]interface{}, error)
+	GetObjectVersionFunc        func(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error)
+	DeleteObjectVersionFunc     func(ctx context.Context, bucketName, objectKey, versionID string) error
 }
 
 func (m *MockBackend) ListBuckets(ctx context.Context) ([]string, error) {
@@ -133,6 +138,41 @@ func (m *MockBackend) ListMultipartUploads(ctx context.Context, bucketName strin
 		return m.ListMultipartUploadsFunc(ctx, bucketName)
 	}
 	return []interface{}{}, nil
+}
+
+func (m *MockBackend) EnableVersioning(ctx context.Context, bucketName string) error {
+	if m.EnableVersioningFunc != nil {
+		return m.EnableVersioningFunc(ctx, bucketName)
+	}
+	return nil
+}
+
+func (m *MockBackend) GetVersioning(ctx context.Context, bucketName string) (bool, error) {
+	if m.GetVersioningFunc != nil {
+		return m.GetVersioningFunc(ctx, bucketName)
+	}
+	return false, nil
+}
+
+func (m *MockBackend) ListObjectVersions(ctx context.Context, bucketName, prefix string) ([]interface{}, error) {
+	if m.ListObjectVersionsFunc != nil {
+		return m.ListObjectVersionsFunc(ctx, bucketName, prefix)
+	}
+	return []interface{}{}, nil
+}
+
+func (m *MockBackend) GetObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error) {
+	if m.GetObjectVersionFunc != nil {
+		return m.GetObjectVersionFunc(ctx, bucketName, objectKey, versionID)
+	}
+	return io.NopCloser(bytes.NewReader([]byte("test data"))), nil
+}
+
+func (m *MockBackend) DeleteObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) error {
+	if m.DeleteObjectVersionFunc != nil {
+		return m.DeleteObjectVersionFunc(ctx, bucketName, objectKey, versionID)
+	}
+	return nil
 }
 
 func TestS3HandlerCreation(t *testing.T) {
