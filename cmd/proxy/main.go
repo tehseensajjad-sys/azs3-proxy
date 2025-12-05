@@ -51,8 +51,14 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		logger.Info("starting S3 proxy server", zap.String("addr", cfg.ListenAddr))
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Info("starting S3 proxy server", zap.String("addr", cfg.ListenAddr), zap.Bool("tls", cfg.EnableTLS))
+		var err error
+		if cfg.EnableTLS {
+			err = httpServer.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile)
+		} else {
+			err = httpServer.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			logger.Fatal("server error", zap.Error(err))
 		}
 	}()

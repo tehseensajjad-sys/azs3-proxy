@@ -173,6 +173,9 @@ s3-azure-proxy/
 | `S3_ACCESS_KEY` | Yes | – | S3 access key ID for clients |
 | `S3_SECRET_KEY` | Yes | – | S3 secret access key |
 | `LOG_LEVEL` | No | `info` | Logging level (debug, info, warn, error) |
+| `ENABLE_TLS` | No | `false` | Enable HTTPS/TLS support (true/false) |
+| `TLS_CERT_FILE` | Conditional | – | Path to TLS certificate file (required if ENABLE_TLS=true) |
+| `TLS_KEY_FILE` | Conditional | – | Path to TLS private key file (required if ENABLE_TLS=true) |
 
 ## Usage Examples
 
@@ -227,6 +230,32 @@ obj = s3.get_object(Bucket='mybucket', Key='myfile.txt')
 data = obj['Body'].read()
 ```
 
+### HTTPS/TLS Support
+
+To enable HTTPS, generate or provide SSL/TLS certificates and configure the proxy:
+
+```bash
+# Generate self-signed certificate (for testing)
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+
+# Set environment variables
+export ENABLE_TLS=true
+export TLS_CERT_FILE=/path/to/cert.pem
+export TLS_KEY_FILE=/path/to/key.pem
+
+# Start proxy (now listening on HTTPS)
+./bin/s3-proxy
+```
+
+Then use HTTPS endpoint with S3 clients:
+
+```bash
+aws s3 ls \
+  --endpoint-url https://localhost:8080 \
+  --ca-bundle /path/to/cert.pem \
+  --region us-east-1
+```
+
 ## Development
 
 ### Building
@@ -261,7 +290,7 @@ Current test coverage: **61.4%** across all packages
 
 - `internal/auth`: 87.9% (SigV4 verification)
 - `internal/models`: 83.3% (error mapping, XML serialization)
-- `internal/config`: 69.4% (config loading & validation)
+- `internal/config`: 72.0% (config loading & validation)
 - `internal/handler`: 69.5% (HTTP handler routing)
 - `internal/backend/azureblob`: 50.0% (client initialization)
 - `internal/server`: 42.6% (server lifecycle)

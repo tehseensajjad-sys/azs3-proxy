@@ -204,3 +204,105 @@ func TestLoadConfigValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestTLSConfiguration(t *testing.T) {
+tests := []struct {
+name      string
+setup     func()
+cleanup   func()
+expectErr bool
+expectTLS bool
+}{
+{
+name: "tls_enabled_with_valid_paths",
+setup: func() {
+os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+os.Setenv("AZURE_STORAGE_KEY", "testkey")
+os.Setenv("S3_ACCESS_KEY", "testaccess")
+os.Setenv("S3_SECRET_KEY", "testsecret")
+os.Setenv("ENABLE_TLS", "true")
+os.Setenv("TLS_CERT_FILE", "/path/to/cert.pem")
+os.Setenv("TLS_KEY_FILE", "/path/to/key.pem")
+},
+cleanup: func() {
+os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+os.Unsetenv("AZURE_STORAGE_KEY")
+os.Unsetenv("S3_ACCESS_KEY")
+os.Unsetenv("S3_SECRET_KEY")
+os.Unsetenv("ENABLE_TLS")
+os.Unsetenv("TLS_CERT_FILE")
+os.Unsetenv("TLS_KEY_FILE")
+},
+expectErr: false,
+expectTLS: true,
+},
+{
+name: "tls_enabled_without_cert_file",
+setup: func() {
+os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+os.Setenv("AZURE_STORAGE_KEY", "testkey")
+os.Setenv("S3_ACCESS_KEY", "testaccess")
+os.Setenv("S3_SECRET_KEY", "testsecret")
+os.Setenv("ENABLE_TLS", "true")
+os.Setenv("TLS_KEY_FILE", "/path/to/key.pem")
+os.Unsetenv("TLS_CERT_FILE")
+},
+cleanup: func() {
+os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+os.Unsetenv("AZURE_STORAGE_KEY")
+os.Unsetenv("S3_ACCESS_KEY")
+os.Unsetenv("S3_SECRET_KEY")
+os.Unsetenv("ENABLE_TLS")
+os.Unsetenv("TLS_CERT_FILE")
+os.Unsetenv("TLS_KEY_FILE")
+},
+expectErr: true,
+expectTLS: false,
+},
+{
+name: "tls_disabled_no_cert_required",
+setup: func() {
+os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+os.Setenv("AZURE_STORAGE_KEY", "testkey")
+os.Setenv("S3_ACCESS_KEY", "testaccess")
+os.Setenv("S3_SECRET_KEY", "testsecret")
+os.Setenv("ENABLE_TLS", "false")
+os.Unsetenv("TLS_CERT_FILE")
+os.Unsetenv("TLS_KEY_FILE")
+},
+cleanup: func() {
+os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+os.Unsetenv("AZURE_STORAGE_KEY")
+os.Unsetenv("S3_ACCESS_KEY")
+os.Unsetenv("S3_SECRET_KEY")
+os.Unsetenv("ENABLE_TLS")
+},
+expectErr: false,
+expectTLS: false,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+if tt.setup != nil {
+tt.setup()
+}
+defer func() {
+if tt.cleanup != nil {
+tt.cleanup()
+}
+}()
+
+cfg, err := LoadConfig()
+if tt.expectErr && err == nil {
+t.Error("Expected error but got none")
+}
+if !tt.expectErr && err != nil {
+t.Errorf("Expected no error but got %v", err)
+}
+if !tt.expectErr && cfg != nil && cfg.EnableTLS != tt.expectTLS {
+t.Errorf("Expected EnableTLS=%v but got %v", tt.expectTLS, cfg.EnableTLS)
+}
+})
+}
+}

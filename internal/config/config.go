@@ -10,6 +10,11 @@ type Config struct {
 	// HTTP Server
 	ListenAddr string
 
+	// HTTPS/TLS Configuration
+	EnableTLS bool
+	CertFile  string
+	KeyFile   string
+
 	// Azure Storage Authentication (flexible, supports multiple auth methods)
 	AzureAuth *AzureAuthConfig
 
@@ -31,6 +36,9 @@ func LoadConfig() (*Config, error) {
 
 	cfg := &Config{
 		ListenAddr:        getEnv("LISTEN_ADDR", ":8080"),
+		EnableTLS:         getEnv("ENABLE_TLS", "false") == "true",
+		CertFile:          getEnv("TLS_CERT_FILE", ""),
+		KeyFile:           getEnv("TLS_KEY_FILE", ""),
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     getEnvRequired("S3_ACCESS_KEY"),
 		S3SecretAccessKey: getEnvRequired("S3_SECRET_KEY"),
@@ -54,6 +62,12 @@ func (c *Config) Validate() error {
 	}
 	if c.S3SecretAccessKey == "" {
 		return fmt.Errorf("S3_SECRET_KEY is required")
+	}
+	// Validate TLS configuration
+	if c.EnableTLS {
+		if c.CertFile == "" || c.KeyFile == "" {
+			return fmt.Errorf("TLS_CERT_FILE and TLS_KEY_FILE are required when ENABLE_TLS is true")
+		}
 	}
 	return nil
 }
