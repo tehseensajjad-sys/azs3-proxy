@@ -615,3 +615,168 @@ func (h *S3Handler) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.R
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
 }
+
+// EnableVersioningHandler enables versioning on a bucket
+func (h *S3Handler) EnableVersioningHandler(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	h.logger.Debug("EnableVersioning request", zap.String("bucket", bucket))
+
+	err := h.backend.EnableVersioning(r.Context(), bucket)
+	if err != nil {
+		h.logger.Error("failed to enable versioning", zap.String("bucket", bucket), zap.Error(err))
+		errMsg := err.Error()
+		s3ErrCode := models.AzureErrorToS3(errMsg)
+		s3Err := &models.S3Error{
+			Code:     s3ErrCode,
+			Message:  errMsg,
+			Resource: "/" + bucket,
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	resp := models.VersioningConfiguration{
+		Status: "Enabled",
+	}
+	xmlData, _ := xml.Marshal(resp)
+	w.Write(xmlData)
+}
+
+// GetVersioningHandler gets the versioning status of a bucket
+func (h *S3Handler) GetVersioningHandler(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	h.logger.Debug("GetVersioning request", zap.String("bucket", bucket))
+
+	enabled, err := h.backend.GetVersioning(r.Context(), bucket)
+	if err != nil {
+		h.logger.Error("failed to get versioning", zap.String("bucket", bucket), zap.Error(err))
+		errMsg := err.Error()
+		s3ErrCode := models.AzureErrorToS3(errMsg)
+		s3Err := &models.S3Error{
+			Code:     s3ErrCode,
+			Message:  errMsg,
+			Resource: "/" + bucket,
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+
+	status := ""
+	if enabled {
+		status = "Enabled"
+	} else {
+		status = "Suspended"
+	}
+
+	resp := models.VersioningConfiguration{
+		Status: status,
+	}
+	xmlData, _ := xml.Marshal(resp)
+	w.Write(xmlData)
+}
+
+// ListObjectVersionsHandler lists all versions of objects in a bucket
+func (h *S3Handler) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	prefix := r.URL.Query().Get("prefix")
+	h.logger.Debug("ListObjectVersions request", zap.String("bucket", bucket), zap.String("prefix", prefix))
+
+	versions, err := h.backend.ListObjectVersions(r.Context(), bucket, prefix)
+	if err != nil {
+		h.logger.Error("failed to list object versions", zap.String("bucket", bucket), zap.Error(err))
+		errMsg := err.Error()
+		s3ErrCode := models.AzureErrorToS3(errMsg)
+		s3Err := &models.S3Error{
+			Code:     s3ErrCode,
+			Message:  errMsg,
+			Resource: "/" + bucket,
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+
+	var versionList []models.ObjectVersionXML
+	for _, v := range versions {
+		objVersion := v.(backend.ObjectVersion)
+		versionList = append(versionList, models.ObjectVersionXML{
+			Key:          objVersion.Key,
+			VersionID:    objVersion.VersionID,
+			IsLatest:     objVersion.IsLatest,
+			LastModified: objVersion.Modified,
+			ETag:         objVersion.ETag,
+			Size:         objVersion.Size,
+			StorageClass: "STANDARD",
+		})
+	}
+
+	resp := models.ListObjectVersionsResponse{
+		Name:        bucket,
+		Prefix:      prefix,
+		IsTruncated: false,
+		Versions:    versionList,
+	}
+	xmlData, _ := xml.Marshal(resp)
+	w.Write(xmlData)
+}
+
+// GetObjectVersionHandler retrieves a specific version of an object
+func (h *S3Handler) GetObjectVersionHandler(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	key := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
+	versionID := r.URL.Query().Get("versionId")
+	h.logger.Debug("GetObjectVersion request", zap.String("bucket", bucket), zap.String("key", key), zap.String("versionId", versionID))
+
+	reader, err := h.backend.GetObjectVersion(r.Context(), bucket, key, versionID)
+	if err != nil {
+		h.logger.Error("failed to get object version", zap.String("bucket", bucket), zap.String("key", key), zap.Error(err))
+		errMsg := err.Error()
+		s3ErrCode := models.AzureErrorToS3(errMsg)
+		s3Err := &models.S3Error{
+			Code:     s3ErrCode,
+			Message:  errMsg,
+			Resource: "/" + bucket + "/" + key,
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+	defer reader.Close()
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if versionID != "" {
+		w.Header().Set("x-amz-version-id", versionID)
+	}
+	w.WriteHeader(http.StatusOK)
+	io.Copy(w, reader)
+}
+
+// DeleteObjectVersionHandler deletes a specific version of an object
+func (h *S3Handler) DeleteObjectVersionHandler(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	key := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
+	versionID := r.URL.Query().Get("versionId")
+	h.logger.Debug("DeleteObjectVersion request", zap.String("bucket", bucket), zap.String("key", key), zap.String("versionId", versionID))
+
+	err := h.backend.DeleteObjectVersion(r.Context(), bucket, key, versionID)
+	if err != nil {
+		h.logger.Error("failed to delete object version", zap.String("bucket", bucket), zap.String("key", key), zap.Error(err))
+		errMsg := err.Error()
+		s3ErrCode := models.AzureErrorToS3(errMsg)
+		s3Err := &models.S3Error{
+			Code:     s3ErrCode,
+			Message:  errMsg,
+			Resource: "/" + bucket + "/" + key,
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

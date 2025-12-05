@@ -104,8 +104,21 @@ func (s *S3ProxyServer) registerRoutes() {
 	s.router.Get("/{bucket}", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("uploads") != "" {
 			s3Handler.ListMultipartUploadsHandler(w, r)
+		} else if r.URL.Query().Get("versioning") != "" {
+			s3Handler.GetVersioningHandler(w, r)
+		} else if r.URL.Query().Get("versions") != "" {
+			s3Handler.ListObjectVersionsHandler(w, r)
 		} else {
 			s3Handler.ListObjectsV2Handler(w, r)
+		}
+	})
+
+	// Bucket PUT with versioning support (PUT /{bucket}?versioning)
+	s.router.Put("/{bucket}", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("versioning") != "" {
+			s3Handler.EnableVersioningHandler(w, r)
+		} else {
+			s3Handler.CreateBucketHandler(w, r)
 		}
 	})
 
@@ -113,6 +126,8 @@ func (s *S3ProxyServer) registerRoutes() {
 	s.router.Get("/{bucket}/*", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("uploadId") != "" {
 			s3Handler.ListPartsHandler(w, r)
+		} else if r.URL.Query().Get("versionId") != "" {
+			s3Handler.GetObjectVersionHandler(w, r)
 		} else {
 			s3Handler.GetObjectHandler(w, r)
 		}
@@ -131,6 +146,8 @@ func (s *S3ProxyServer) registerRoutes() {
 	s.router.Delete("/{bucket}/*", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("uploadId") != "" {
 			s3Handler.AbortMultipartUploadHandler(w, r)
+		} else if r.URL.Query().Get("versionId") != "" {
+			s3Handler.DeleteObjectVersionHandler(w, r)
 		} else {
 			s3Handler.DeleteObjectHandler(w, r)
 		}
