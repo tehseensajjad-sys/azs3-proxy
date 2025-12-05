@@ -28,6 +28,9 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+            - name: Tidy dependencies
+                  run: go mod tidy
+
       - name: Build
         run: go build -v -o bin/s3-proxy ./cmd/proxy
 
