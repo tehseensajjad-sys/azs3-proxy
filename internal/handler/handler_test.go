@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/cache"
 	"go.uber.org/zap"
 )
 
@@ -879,5 +880,776 @@ func TestDeleteObjectVersionHandler(t *testing.T) {
 				t.Errorf("DeleteObjectVersion: expected status %d, got %d", test.expectStatus, w.Code)
 			}
 		})
+	}
+}
+
+// TestEnableVersioningHandler_Error tests error handling in EnableVersioning
+func TestEnableVersioningHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		EnableVersioningFunc: func(ctx context.Context, bucketName string) error {
+			return errors.New("bucket not found")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Put("/{bucket}", handler.EnableVersioningHandler)
+
+	body := bytes.NewReader([]byte("<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>"))
+	req := httptest.NewRequest("PUT", "/mybucket?versioning", body)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestGetVersioningHandler_Error tests error handling in GetVersioning
+func TestGetVersioningHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		GetVersioningFunc: func(ctx context.Context, bucketName string) (bool, error) {
+			return false, errors.New("service error")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}", handler.GetVersioningHandler)
+
+	req := httptest.NewRequest("GET", "/mybucket?versioning", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestListObjectVersionsHandler_Error tests error handling in ListObjectVersions
+func TestListObjectVersionsHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListObjectVersionsFunc: func(ctx context.Context, bucketName, prefix string) ([]interface{}, error) {
+			return nil, errors.New("list failed")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.ListObjectVersionsHandler)
+
+	req := httptest.NewRequest("GET", "/mybucket/?list-type=2&versions", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestGetObjectVersionHandler_Error tests error handling in GetObjectVersion
+func TestGetObjectVersionHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		GetObjectVersionFunc: func(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error) {
+			return nil, errors.New("version not found")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.GetObjectVersionHandler)
+
+	req := httptest.NewRequest("GET", "/mybucket/mykey?versionId=v123", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestListPartsHandler_Error tests error handling in ListParts
+func TestListPartsHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListPartsFunc: func(ctx context.Context, bucketName, objectKey, uploadID string) ([]interface{}, error) {
+			return nil, errors.New("upload not found")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.ListPartsHandler)
+
+	req := httptest.NewRequest("GET", "/mybucket/mykey?uploadId=123", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestListMultipartUploadsHandler_Error tests error handling in ListMultipartUploads
+func TestListMultipartUploadsHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListMultipartUploadsFunc: func(ctx context.Context, bucketName string) ([]interface{}, error) {
+			return nil, errors.New("service error")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}", handler.ListMultipartUploadsHandler)
+
+	req := httptest.NewRequest("GET", "/mybucket?uploads", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestListBucketsHandler_Error tests error handling in ListBuckets
+func TestListBucketsHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListBucketsFunc: func(ctx context.Context) ([]string, error) {
+			return nil, errors.New("service unavailable")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/", handler.ListBucketsHandler)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestCreateBucketHandler_Error tests error handling in CreateBucket
+func TestCreateBucketHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		CreateBucketFunc: func(ctx context.Context, bucketName string) error {
+			return errors.New("service error")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Put("/{bucket}", handler.CreateBucketHandler)
+
+	req := httptest.NewRequest("PUT", "/mybucket", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestDeleteBucketHandler_Error tests error handling in DeleteBucket
+func TestDeleteBucketHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		DeleteBucketFunc: func(ctx context.Context, bucketName string) error {
+			return errors.New("service error")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Delete("/{bucket}", handler.DeleteBucketHandler)
+
+	req := httptest.NewRequest("DELETE", "/mybucket", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestGetObjectHandler_Error tests error handling in GetObject
+func TestGetObjectHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
+			return nil, errors.New("not found")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.GetObjectHandler)
+
+	req := httptest.NewRequest("GET", "/mybucket/mykey", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestPutObjectHandler_Error tests error handling in PutObject
+func TestPutObjectHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
+			return errors.New("upload failed")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Put("/{bucket}/*", handler.PutObjectHandler)
+
+	body := bytes.NewReader([]byte("test data"))
+	req := httptest.NewRequest("PUT", "/mybucket/mykey", body)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestDeleteObjectHandler_Error tests error handling in DeleteObject
+func TestDeleteObjectHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		DeleteObjectFunc: func(ctx context.Context, bucketName, objectKey string) error {
+			return errors.New("delete failed")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Delete("/{bucket}/*", handler.DeleteObjectHandler)
+
+	req := httptest.NewRequest("DELETE", "/mybucket/mykey", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestHeadObjectHandler_NotFound tests 404 behavior in HeadObject
+func TestHeadObjectHandler_NotFound(t *testing.T) {
+	mockBackend := &MockBackend{
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
+			return false, nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Head("/{bucket}/*", handler.HeadObjectHandler)
+
+	req := httptest.NewRequest("HEAD", "/mybucket/mykey", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+}
+
+// TestListObjectsV2Handler_Error tests error handling in ListObjects
+func TestListObjectsV2Handler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListObjectsFunc: func(ctx context.Context, bucketName, prefix string) ([]string, error) {
+			return nil, errors.New("list failed")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.ListObjectsV2Handler)
+
+	req := httptest.NewRequest("GET", "/mybucket/?list-type=2", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestInitiateMultipartUploadHandler_Error tests error handling in InitiateMultipartUpload
+func TestInitiateMultipartUploadHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		InitiateMultipartUploadFunc: func(ctx context.Context, bucketName, objectKey string) (string, error) {
+			return "", errors.New("initiate failed")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Post("/{bucket}/*", handler.InitiateMultipartUploadHandler)
+
+	req := httptest.NewRequest("POST", "/mybucket/mykey?uploads", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestUploadPartHandler_Error tests error handling in UploadPart
+func TestUploadPartHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		UploadPartFunc: func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error) {
+			return "", errors.New("upload part failed")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Put("/{bucket}/*", handler.UploadPartHandler)
+
+	body := bytes.NewReader([]byte("part data"))
+	req := httptest.NewRequest("PUT", "/mybucket/mykey?uploadId=123&partNumber=1", body)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestCompleteMultipartUploadHandler_Error tests error handling in CompleteMultipartUpload
+func TestCompleteMultipartUploadHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		CompleteMultipartUploadFunc: func(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (string, error) {
+			return "", errors.New("complete failed")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Post("/{bucket}/*", handler.CompleteMultipartUploadHandler)
+
+	body := bytes.NewReader([]byte("<CompleteMultipartUpload></CompleteMultipartUpload>"))
+	req := httptest.NewRequest("POST", "/mybucket/mykey?uploadId=123", body)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestAbortMultipartUploadHandler_Error tests error handling in AbortMultipartUpload
+func TestAbortMultipartUploadHandler_Error(t *testing.T) {
+	mockBackend := &MockBackend{
+		AbortMultipartUploadFunc: func(ctx context.Context, bucketName, objectKey, uploadID string) error {
+			return errors.New("abort failed")
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Delete("/{bucket}/*", handler.AbortMultipartUploadHandler)
+
+	req := httptest.NewRequest("DELETE", "/mybucket/mykey?uploadId=123", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+}
+
+// TestS3HandlerStatsIntegration tests stats recording in handlers
+func TestS3HandlerStatsIntegration(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListBucketsFunc: func(ctx context.Context) ([]string, error) {
+			return []string{"bucket1", "bucket2"}, nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	// Verify stats are initialized
+	stats := handler.GetStats()
+	if stats.TotalRequests != 0 {
+		t.Errorf("initial stats should have 0 requests, got %d", stats.TotalRequests)
+	}
+
+	r := chi.NewRouter()
+	r.Get("/", handler.ListBucketsHandler)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	// Verify stats were updated
+	stats = handler.GetStats()
+	if stats.TotalRequests != 1 {
+		t.Errorf("after one request, stats should show 1 request, got %d", stats.TotalRequests)
+	}
+}
+
+// TestPostObjectHandler tests the default POST handler (if implemented)
+func TestPostObjectHandler(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListObjectsFunc: func(ctx context.Context, bucketName, prefix string) ([]string, error) {
+			return []string{"key1", "key2"}, nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Post("/{bucket}/*", handler.PostObjectHandler)
+
+	body := bytes.NewReader([]byte("test data"))
+	req := httptest.NewRequest("POST", "/mybucket/mykey", body)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// PostObjectHandler may not be fully implemented, so we just verify it doesn't crash
+	if w.Code == 0 {
+		t.Errorf("PostObjectHandler should set a status code")
+	}
+}
+
+// TestDeleteObjectHandler_Success tests successful object deletion
+func TestDeleteObjectHandler_Success(t *testing.T) {
+	mockBackend := &MockBackend{
+		DeleteObjectFunc: func(ctx context.Context, bucketName, objectKey string) error {
+			return nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Delete("/{bucket}/*", handler.DeleteObjectHandler)
+
+	req := httptest.NewRequest("DELETE", "/mybucket/mykey", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected status 204, got %d", w.Code)
+	}
+}
+
+// TestHeadObjectHandler_Success tests successful object existence check
+func TestHeadObjectHandler_Success(t *testing.T) {
+	mockBackend := &MockBackend{
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
+			return true, nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Head("/{bucket}/*", handler.HeadObjectHandler)
+
+	req := httptest.NewRequest("HEAD", "/mybucket/mykey", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+// TestGetObjectHandler_Success tests successful object retrieval
+func TestGetObjectHandler_Success(t *testing.T) {
+	mockBackend := &MockBackend{
+		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader([]byte("test object data"))), nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.GetObjectHandler)
+
+	req := httptest.NewRequest("GET", "/mybucket/mykey", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	if w.Body.String() != "test object data" {
+		t.Errorf("expected body 'test object data', got %s", w.Body.String())
+	}
+}
+
+// TestPutObjectHandler_Success tests successful object upload
+func TestPutObjectHandler_Success(t *testing.T) {
+	mockBackend := &MockBackend{
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
+			return nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Put("/{bucket}/*", handler.PutObjectHandler)
+
+	body := bytes.NewReader([]byte("upload data"))
+	req := httptest.NewRequest("PUT", "/mybucket/mykey", body)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+// TestSetCacheManager tests setting cache manager on handler
+func TestSetCacheManager(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	backend := &MockBackend{}
+	handler := NewS3Handler(backend, logger)
+
+	// Mock cache manager
+	tmpDir := t.TempDir()
+	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
+	if err != nil {
+		t.Fatalf("NewCacheManager failed: %v", err)
+	}
+	defer cm.Close()
+
+	handler.SetCacheManager(cm)
+	if handler.cacheManager != cm {
+		t.Fatal("SetCacheManager did not set the cache manager")
+	}
+}
+
+// TestGenerateCacheKey tests cache key generation
+func TestGenerateCacheKey(t *testing.T) {
+	tests := []struct {
+		bucket   string
+		key      string
+		expected string
+	}{
+		{"mybucket", "mykey", "mybucket/mykey"},
+		{"bucket1", "path/to/object", "bucket1/path/to/object"},
+		{"test-bucket", "test-key", "test-bucket/test-key"},
+		{"bucket", "", "bucket/"},
+		{"", "key", "/key"},
+	}
+
+	for _, tt := range tests {
+		result := generateCacheKey(tt.bucket, tt.key)
+		if result != tt.expected {
+			t.Errorf("generateCacheKey(%q, %q) = %q, expected %q", tt.bucket, tt.key, result, tt.expected)
+		}
+	}
+}
+
+// TestGetObjectHandler_WithCache tests GetObject with cache enabled
+func TestGetObjectHandler_WithCache(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	tmpDir := t.TempDir()
+	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
+	if err != nil {
+		t.Fatalf("NewCacheManager failed: %v", err)
+	}
+	defer cm.Close()
+
+	objectData := []byte("cached object data")
+	backend := &MockBackend{
+		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(objectData)), nil
+		},
+	}
+
+	handler := NewS3Handler(backend, logger)
+	handler.SetCacheManager(cm)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.GetObjectHandler)
+
+	req := httptest.NewRequest("GET", "/bucket1/key1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	if w.Body.String() != string(objectData) {
+		t.Errorf("expected body %s, got %s", objectData, w.Body.String())
+	}
+}
+
+// TestGetObjectHandler_CacheHit tests GetObject with cache hit
+func TestGetObjectHandler_CacheHit(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	tmpDir := t.TempDir()
+	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
+	if err != nil {
+		t.Fatalf("NewCacheManager failed: %v", err)
+	}
+	defer cm.Close()
+
+	objectData := []byte("cached object data for hit test")
+	cacheKey := "bucket1/key1"
+
+	// Pre-populate cache
+	err = cm.CacheObject(cacheKey, objectData)
+	if err != nil {
+		t.Fatalf("CacheObject failed: %v", err)
+	}
+
+	callCount := 0
+	backend := &MockBackend{
+		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
+			callCount++
+			return io.NopCloser(bytes.NewReader(objectData)), nil
+		},
+	}
+
+	handler := NewS3Handler(backend, logger)
+	handler.SetCacheManager(cm)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}/*", handler.GetObjectHandler)
+
+	req := httptest.NewRequest("GET", "/bucket1/key1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	// Check that the cached version was served (should not have called backend)
+	if w.Header().Get("X-Cache-Hit") != "true" {
+		t.Errorf("expected X-Cache-Hit header to be true")
+	}
+
+	if callCount != 0 {
+		t.Errorf("backend should not have been called for cache hit, but was called %d times", callCount)
+	}
+}
+
+// TestHeadObjectHandler_WithCache tests HeadObject with cache
+func TestHeadObjectHandler_WithCache(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	tmpDir := t.TempDir()
+	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
+	if err != nil {
+		t.Fatalf("NewCacheManager failed: %v", err)
+	}
+	defer cm.Close()
+
+	backend := &MockBackend{
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
+			return true, nil
+		},
+	}
+
+	handler := NewS3Handler(backend, logger)
+	handler.SetCacheManager(cm)
+
+	r := chi.NewRouter()
+	r.Head("/{bucket}/*", handler.HeadObjectHandler)
+
+	req := httptest.NewRequest("HEAD", "/bucket1/key1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+// TestPutObjectHandler_WithCache tests PutObject with cache enabled
+func TestPutObjectHandler_WithCache(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	tmpDir := t.TempDir()
+	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
+	if err != nil {
+		t.Fatalf("NewCacheManager failed: %v", err)
+	}
+	defer cm.Close()
+
+	backend := &MockBackend{
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
+			return nil
+		},
+	}
+
+	handler := NewS3Handler(backend, logger)
+	handler.SetCacheManager(cm)
+
+	r := chi.NewRouter()
+	r.Put("/{bucket}/*", handler.PutObjectHandler)
+
+	body := bytes.NewReader([]byte("test data"))
+	req := httptest.NewRequest("PUT", "/bucket1/key1", body)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
 	}
 }

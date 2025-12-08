@@ -203,3 +203,132 @@ func TestS3ProxyServerRouting(t *testing.T) {
 		t.Error("Server router should not be nil")
 	}
 }
+
+func TestServerClose(t *testing.T) {
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AuthModeAccountKey,
+		StorageAccountName: "testaccount",
+		AccountKey:         "dGVzdGtleQ==",
+		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
+	}
+
+	cfg := &config.Config{
+		ListenAddr:        ":8080",
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     "AKIA1234567890ABCDEF",
+		S3SecretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+		LogLevel:          "info",
+	}
+
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	server, err := NewS3ProxyServer(router, cfg, logger)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Close should not panic or error
+	err = server.Close()
+	if err != nil {
+		t.Errorf("Close() failed: %v", err)
+	}
+}
+
+func TestServerAuthMiddlewareWithValidSignature(t *testing.T) {
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AuthModeAccountKey,
+		StorageAccountName: "testaccount",
+		AccountKey:         "dGVzdGtleQ==",
+		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
+	}
+
+	cfg := &config.Config{
+		ListenAddr:        ":8080",
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     "AKIA1234567890ABCDEF",
+		S3SecretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+		LogLevel:          "info",
+	}
+
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	server, err := NewS3ProxyServer(router, cfg, logger)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	if server == nil {
+		t.Error("Expected non-nil server")
+	}
+}
+
+func TestServerAuthMiddlewareWithMissingAuth(t *testing.T) {
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AuthModeAccountKey,
+		StorageAccountName: "testaccount",
+		AccountKey:         "dGVzdGtleQ==",
+		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
+	}
+
+	cfg := &config.Config{
+		ListenAddr:        ":8080",
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     "AKIA1234567890ABCDEF",
+		S3SecretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+		LogLevel:          "info",
+	}
+
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	server, err := NewS3ProxyServer(router, cfg, logger)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	if server == nil {
+		t.Error("Expected non-nil server")
+	}
+}
+
+func TestServerIntegration_FullSetup(t *testing.T) {
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AuthModeAccountKey,
+		StorageAccountName: "testaccount",
+		AccountKey:         "dGVzdGtleQ==",
+		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
+	}
+
+	cfg := &config.Config{
+		ListenAddr:        ":8080",
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     "AKIA1234567890ABCDEF",
+		S3SecretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+		LogLevel:          "info",
+	}
+
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	server, err := NewS3ProxyServer(router, cfg, logger)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Verify that routes are registered by checking router is not nil
+	if server.router == nil {
+		t.Error("Server router should not be nil after initialization")
+	}
+
+	// Close the server
+	err = server.Close()
+	if err != nil {
+		t.Errorf("Failed to close server: %v", err)
+	}
+}

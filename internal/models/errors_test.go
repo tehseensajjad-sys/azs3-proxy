@@ -49,3 +49,84 @@ func TestS3ErrorHTTPStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestS3ErrorError(t *testing.T) {
+	tests := []struct {
+		name        string
+		err         *S3Error
+		shouldError bool
+	}{
+		{
+			name: "error with code and message",
+			err: &S3Error{
+				Code:    NoSuchKey,
+				Message: "Key not found",
+			},
+			shouldError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err != nil {
+				errStr := tt.err.Error()
+				if tt.shouldError && errStr == "" {
+					t.Error("Expected non-empty error string")
+				}
+			}
+		})
+	}
+}
+
+func TestAzureErrorToS3_AllMappings(t *testing.T) {
+	mappings := map[string]S3ErrorCode{
+		"ContainerNotFound":               NoSuchBucket,
+		"BlobNotFound":                    NoSuchKey,
+		"ContainerAlreadyExists":          BucketAlreadyExists,
+		"InvalidName":                     InvalidBucketName,
+		"AuthorizationPermissionMismatch": AccessDenied,
+		"UnknownError":                    InternalError,
+	}
+
+	for azureErr, expectedCode := range mappings {
+		t.Run(azureErr, func(t *testing.T) {
+			code := AzureErrorToS3(azureErr)
+			if code != expectedCode {
+				t.Errorf("AzureErrorToS3(%q) = %v, want %v", azureErr, code, expectedCode)
+			}
+		})
+	}
+}
+
+func TestHTTPStatus_AllErrorCodes(t *testing.T) {
+	tests := []struct {
+		code           S3ErrorCode
+		expectedStatus int
+	}{
+		{NoSuchBucket, 404},
+		{NoSuchKey, 404},
+		{BucketAlreadyExists, 409},
+		{AccessDenied, 403},
+		{InvalidBucketName, 400},
+		{InternalError, 500},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.code), func(t *testing.T) {
+			err := &S3Error{Code: tt.code}
+			status := err.HTTPStatus()
+			if status != tt.expectedStatus {
+				t.Errorf("HTTPStatus() for %v = %d, want %d", tt.code, status, tt.expectedStatus)
+			}
+		})
+	}
+}
+
+// TestHTTPStatus_UnknownErrorCode tests default status for unknown error codes
+func TestHTTPStatus_UnknownErrorCode(t *testing.T) {
+	err := &S3Error{Code: S3ErrorCode("UnknownCode")}
+	status := err.HTTPStatus()
+	if status != 500 {
+		t.Errorf("HTTPStatus() for unknown code = %d, want 500", status)
+	}
+}

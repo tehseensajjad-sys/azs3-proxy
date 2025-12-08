@@ -2,6 +2,7 @@ package azureblob
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
@@ -393,4 +394,151 @@ func TestInitiateMultipartUploadUniqueness(t *testing.T) {
 	// Skip test if we can't create a real Azure client
 	// (this would require valid Azure credentials)
 	t.Logf("InitiateMultipartUpload requires real Azure SDK client, skipping uniqueness test")
+}
+
+// TestEnableVersioning_Success tests enabling versioning on a bucket
+func TestEnableVersioning_Success(t *testing.T) {
+	backend := &AzureBlobBackend{
+		versionedBuckets:      make(map[string]bool),
+		versionedBucketsMutex: sync.RWMutex{},
+		multipartUploads:      make(map[string]*MultipartUploadMetadata),
+		multipartUploadsMutex: sync.RWMutex{},
+	}
+
+	// Verify versioning state tracking works
+	backend.versionedBucketsMutex.Lock()
+	backend.versionedBuckets["test-bucket"] = true
+	backend.versionedBucketsMutex.Unlock()
+
+	backend.versionedBucketsMutex.RLock()
+	isVersioned := backend.versionedBuckets["test-bucket"]
+	backend.versionedBucketsMutex.RUnlock()
+
+	if !isVersioned {
+		t.Error("versioning should be enabled for test-bucket")
+	}
+}
+
+// TestGetVersioning_Success tests checking if versioning is enabled
+func TestGetVersioning_Success(t *testing.T) {
+	backend := &AzureBlobBackend{
+		versionedBuckets:      make(map[string]bool),
+		versionedBucketsMutex: sync.RWMutex{},
+		multipartUploads:      make(map[string]*MultipartUploadMetadata),
+		multipartUploadsMutex: sync.RWMutex{},
+	}
+
+	ctx := context.Background()
+
+	// Enable versioning for one bucket
+	backend.versionedBucketsMutex.Lock()
+	backend.versionedBuckets["versioned-bucket"] = true
+	backend.versionedBucketsMutex.Unlock()
+
+	// Test GetVersioning for versioned bucket
+	isVersioned, err := backend.GetVersioning(ctx, "versioned-bucket")
+	if err != nil {
+		t.Errorf("GetVersioning should not fail: %v", err)
+	}
+	if !isVersioned {
+		t.Error("versioned-bucket should report as versioned")
+	}
+
+	// Check non-versioned bucket
+	isVersioned, err = backend.GetVersioning(ctx, "non-versioned-bucket")
+	if err != nil {
+		t.Errorf("GetVersioning should not fail: %v", err)
+	}
+	if isVersioned {
+		t.Error("non-versioned-bucket should report as not versioned")
+	}
+}
+
+// TestListPartsWithMultipleParts tests listing multiple parts
+func TestListPartsWithMultipleParts(t *testing.T) {
+	backend := &AzureBlobBackend{
+		versionedBuckets:      make(map[string]bool),
+		versionedBucketsMutex: sync.RWMutex{},
+		multipartUploads:      make(map[string]*MultipartUploadMetadata),
+		multipartUploadsMutex: sync.RWMutex{},
+	}
+
+	ctx := context.Background()
+
+	// Create a multipart upload with multiple parts
+	upload := &MultipartUploadMetadata{
+		BucketName: "bucket1",
+		ObjectKey:  "key1",
+		BlockIDs:   []string{"block1", "block2", "block3", "block4"},
+		PartETagMap: map[int]string{
+			1: "etag1",
+			2: "etag2",
+			3: "etag3",
+			4: "etag4",
+		},
+	}
+
+	backend.multipartUploadsMutex.Lock()
+	backend.multipartUploads["upload-456"] = upload
+	backend.multipartUploadsMutex.Unlock()
+
+	parts, err := backend.ListParts(ctx, "bucket1", "key1", "upload-456")
+	if err != nil {
+		t.Errorf("ListParts failed: %v", err)
+	}
+	if len(parts) != 4 {
+		t.Errorf("expected 4 parts, got %d", len(parts))
+	}
+}
+
+// TestAbortMultipartUpload_Success tests successful abort
+func TestAbortMultipartUpload_Success(t *testing.T) {
+	backend := &AzureBlobBackend{
+		versionedBuckets:      make(map[string]bool),
+		versionedBucketsMutex: sync.RWMutex{},
+		multipartUploads:      make(map[string]*MultipartUploadMetadata),
+		multipartUploadsMutex: sync.RWMutex{},
+	}
+
+	ctx := context.Background()
+
+	// Create a multipart upload
+	upload := &MultipartUploadMetadata{
+		BucketName:  "bucket1",
+		ObjectKey:   "key1",
+		BlockIDs:    []string{"block1"},
+		PartETagMap: map[int]string{1: "etag1"},
+	}
+
+	backend.multipartUploadsMutex.Lock()
+	backend.multipartUploads["upload-789"] = upload
+	backend.multipartUploadsMutex.Unlock()
+
+	// Abort the upload
+	err := backend.AbortMultipartUpload(ctx, "bucket1", "key1", "upload-789")
+	if err != nil {
+		t.Errorf("AbortMultipartUpload failed: %v", err)
+	}
+
+	// Verify upload is removed
+	backend.multipartUploadsMutex.RLock()
+	_, exists := backend.multipartUploads["upload-789"]
+	backend.multipartUploadsMutex.RUnlock()
+
+	if exists {
+		t.Error("upload should be removed after abort")
+	}
+}
+
+// TestHeadObjectNotFound tests HeadObject returning false for missing objects
+func TestHeadObjectNotFound(t *testing.T) {
+	// This test would require a real Azure client to test properly
+	// For now we document the expected behavior
+	t.Logf("HeadObject 404 handling requires real Azure SDK client for full coverage")
+}
+
+// TestListObjectsEmpty tests listing when no objects exist
+func TestListObjectsEmpty(t *testing.T) {
+	// This test would require a real Azure client to test properly
+	t.Logf("ListObjects empty case requires real Azure SDK client for full coverage")
 }

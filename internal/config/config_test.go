@@ -206,104 +206,104 @@ func TestLoadConfigValidation(t *testing.T) {
 }
 
 func TestTLSConfiguration(t *testing.T) {
-tests := []struct {
-name      string
-setup     func()
-cleanup   func()
-expectErr bool
-expectTLS bool
-}{
-{
-name: "tls_enabled_with_valid_paths",
-setup: func() {
-os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
-os.Setenv("AZURE_STORAGE_KEY", "testkey")
-os.Setenv("S3_ACCESS_KEY", "testaccess")
-os.Setenv("S3_SECRET_KEY", "testsecret")
-os.Setenv("ENABLE_TLS", "true")
-os.Setenv("TLS_CERT_FILE", "/path/to/cert.pem")
-os.Setenv("TLS_KEY_FILE", "/path/to/key.pem")
-},
-cleanup: func() {
-os.Unsetenv("AZURE_STORAGE_ACCOUNT")
-os.Unsetenv("AZURE_STORAGE_KEY")
-os.Unsetenv("S3_ACCESS_KEY")
-os.Unsetenv("S3_SECRET_KEY")
-os.Unsetenv("ENABLE_TLS")
-os.Unsetenv("TLS_CERT_FILE")
-os.Unsetenv("TLS_KEY_FILE")
-},
-expectErr: false,
-expectTLS: true,
-},
-{
-name: "tls_enabled_without_cert_file",
-setup: func() {
-os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
-os.Setenv("AZURE_STORAGE_KEY", "testkey")
-os.Setenv("S3_ACCESS_KEY", "testaccess")
-os.Setenv("S3_SECRET_KEY", "testsecret")
-os.Setenv("ENABLE_TLS", "true")
-os.Setenv("TLS_KEY_FILE", "/path/to/key.pem")
-os.Unsetenv("TLS_CERT_FILE")
-},
-cleanup: func() {
-os.Unsetenv("AZURE_STORAGE_ACCOUNT")
-os.Unsetenv("AZURE_STORAGE_KEY")
-os.Unsetenv("S3_ACCESS_KEY")
-os.Unsetenv("S3_SECRET_KEY")
-os.Unsetenv("ENABLE_TLS")
-os.Unsetenv("TLS_CERT_FILE")
-os.Unsetenv("TLS_KEY_FILE")
-},
-expectErr: true,
-expectTLS: false,
-},
-{
-name: "tls_disabled_no_cert_required",
-setup: func() {
-os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
-os.Setenv("AZURE_STORAGE_KEY", "testkey")
-os.Setenv("S3_ACCESS_KEY", "testaccess")
-os.Setenv("S3_SECRET_KEY", "testsecret")
-os.Setenv("ENABLE_TLS", "false")
-os.Unsetenv("TLS_CERT_FILE")
-os.Unsetenv("TLS_KEY_FILE")
-},
-cleanup: func() {
-os.Unsetenv("AZURE_STORAGE_ACCOUNT")
-os.Unsetenv("AZURE_STORAGE_KEY")
-os.Unsetenv("S3_ACCESS_KEY")
-os.Unsetenv("S3_SECRET_KEY")
-os.Unsetenv("ENABLE_TLS")
-},
-expectErr: false,
-expectTLS: false,
-},
-}
+	tests := []struct {
+		name      string
+		setup     func()
+		cleanup   func()
+		expectErr bool
+		expectTLS bool
+	}{
+		{
+			name: "tls_enabled_with_valid_paths",
+			setup: func() {
+				os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+				os.Setenv("AZURE_STORAGE_KEY", "testkey")
+				os.Setenv("S3_ACCESS_KEY", "testaccess")
+				os.Setenv("S3_SECRET_KEY", "testsecret")
+				os.Setenv("ENABLE_TLS", "true")
+				os.Setenv("TLS_CERT_FILE", "/path/to/cert.pem")
+				os.Setenv("TLS_KEY_FILE", "/path/to/key.pem")
+			},
+			cleanup: func() {
+				os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+				os.Unsetenv("AZURE_STORAGE_KEY")
+				os.Unsetenv("S3_ACCESS_KEY")
+				os.Unsetenv("S3_SECRET_KEY")
+				os.Unsetenv("ENABLE_TLS")
+				os.Unsetenv("TLS_CERT_FILE")
+				os.Unsetenv("TLS_KEY_FILE")
+			},
+			expectErr: false,
+			expectTLS: true,
+		},
+		{
+			name: "tls_enabled_without_cert_file",
+			setup: func() {
+				os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+				os.Setenv("AZURE_STORAGE_KEY", "testkey")
+				os.Setenv("S3_ACCESS_KEY", "testaccess")
+				os.Setenv("S3_SECRET_KEY", "testsecret")
+				os.Setenv("ENABLE_TLS", "true")
+				os.Setenv("TLS_KEY_FILE", "/path/to/key.pem")
+				os.Unsetenv("TLS_CERT_FILE")
+			},
+			cleanup: func() {
+				os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+				os.Unsetenv("AZURE_STORAGE_KEY")
+				os.Unsetenv("S3_ACCESS_KEY")
+				os.Unsetenv("S3_SECRET_KEY")
+				os.Unsetenv("ENABLE_TLS")
+				os.Unsetenv("TLS_CERT_FILE")
+				os.Unsetenv("TLS_KEY_FILE")
+			},
+			expectErr: true,
+			expectTLS: false,
+		},
+		{
+			name: "tls_disabled_no_cert_required",
+			setup: func() {
+				os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+				os.Setenv("AZURE_STORAGE_KEY", "testkey")
+				os.Setenv("S3_ACCESS_KEY", "testaccess")
+				os.Setenv("S3_SECRET_KEY", "testsecret")
+				os.Setenv("ENABLE_TLS", "false")
+				os.Unsetenv("TLS_CERT_FILE")
+				os.Unsetenv("TLS_KEY_FILE")
+			},
+			cleanup: func() {
+				os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+				os.Unsetenv("AZURE_STORAGE_KEY")
+				os.Unsetenv("S3_ACCESS_KEY")
+				os.Unsetenv("S3_SECRET_KEY")
+				os.Unsetenv("ENABLE_TLS")
+			},
+			expectErr: false,
+			expectTLS: false,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-if tt.setup != nil {
-tt.setup()
-}
-defer func() {
-if tt.cleanup != nil {
-tt.cleanup()
-}
-}()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			defer func() {
+				if tt.cleanup != nil {
+					tt.cleanup()
+				}
+			}()
 
-cfg, err := LoadConfig()
-if tt.expectErr && err == nil {
-t.Error("Expected error but got none")
-}
-if !tt.expectErr && err != nil {
-t.Errorf("Expected no error but got %v", err)
-}
-if !tt.expectErr && cfg != nil && cfg.EnableTLS != tt.expectTLS {
-			t.Errorf("Expected EnableTLS=%v but got %v", tt.expectTLS, cfg.EnableTLS)
-		}
-	})
+			cfg, err := LoadConfig()
+			if tt.expectErr && err == nil {
+				t.Error("Expected error but got none")
+			}
+			if !tt.expectErr && err != nil {
+				t.Errorf("Expected no error but got %v", err)
+			}
+			if !tt.expectErr && cfg != nil && cfg.EnableTLS != tt.expectTLS {
+				t.Errorf("Expected EnableTLS=%v but got %v", tt.expectTLS, cfg.EnableTLS)
+			}
+		})
 	}
 }
 
@@ -431,5 +431,385 @@ func TestCacheConfiguration(t *testing.T) {
 				t.Errorf("Cache configuration check failed for config: %+v", cfg)
 			}
 		})
+	}
+}
+
+func TestValidateConfig_InvalidAuthMode(t *testing.T) {
+	cfg := &Config{
+		ListenAddr: ":8080",
+		AzureAuth: &AzureAuthConfig{
+			Mode: "invalid_mode",
+		},
+		S3AccessKeyID:     "test",
+		S3SecretAccessKey: "test",
+	}
+
+	err := cfg.Validate()
+	// Should handle invalid auth mode gracefully
+	if err != nil && err.Error() != "" {
+		t.Logf("Config validation returned error: %v", err)
+	}
+}
+
+func TestValidateConfig_EmptyS3Keys(t *testing.T) {
+	cfg := &Config{
+		ListenAddr: ":8080",
+		AzureAuth: &AzureAuthConfig{
+			Mode:               AuthModeAccountKey,
+			StorageAccountName: "test",
+			AccountKey:         "key",
+		},
+		S3AccessKeyID:     "",
+		S3SecretAccessKey: "",
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Expected validation error for empty S3 keys")
+	}
+}
+
+func TestValidateConfig_ValidListenAddrVariations(t *testing.T) {
+	// ListenAddr is not strictly validated, just used as-is
+	testCases := []string{
+		":8080",
+		"0.0.0.0:8080",
+		"localhost:9000",
+		"",
+	}
+
+	for _, addr := range testCases {
+		cfg := &Config{
+			ListenAddr: addr,
+			AzureAuth: &AzureAuthConfig{
+				Mode:               AuthModeAccountKey,
+				StorageAccountName: "test",
+				AccountKey:         "key",
+			},
+			S3AccessKeyID:     "test",
+			S3SecretAccessKey: "test",
+		}
+
+		err := cfg.Validate()
+		if err != nil {
+			t.Errorf("Expected no error for ListenAddr=%q, got %v", addr, err)
+		}
+	}
+}
+
+func TestValidateConfig_ValidConfig(t *testing.T) {
+	cfg := &Config{
+		ListenAddr: ":8080",
+		AzureAuth: &AzureAuthConfig{
+			Mode:               AuthModeAccountKey,
+			StorageAccountName: "test",
+			AccountKey:         "key",
+		},
+		S3AccessKeyID:     "test",
+		S3SecretAccessKey: "test",
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Expected no error for valid config, got %v", err)
+	}
+}
+
+// TestValidateAzureAuthConfig_AccountKey tests account key auth validation
+func TestValidateAzureAuthConfig_AccountKey(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     *AzureAuthConfig
+		setupEnv   func()
+		cleanupEnv func()
+		expectErr  bool
+		errMsg     string
+	}{
+		{
+			name: "valid account key auth",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeAccountKey,
+				StorageAccountName: "testaccount",
+			},
+			setupEnv: func() {
+				os.Setenv("AZURE_STORAGE_KEY", "testkey123")
+			},
+			cleanupEnv: func() {
+				os.Unsetenv("AZURE_STORAGE_KEY")
+			},
+			expectErr: false,
+		},
+		{
+			name: "account key missing storage account",
+			config: &AzureAuthConfig{
+				Mode: AuthModeAccountKey,
+			},
+			setupEnv: func() {
+				os.Setenv("AZURE_STORAGE_KEY", "testkey")
+			},
+			cleanupEnv: func() {
+				os.Unsetenv("AZURE_STORAGE_KEY")
+			},
+			expectErr: true,
+			errMsg:    "AZURE_STORAGE_ACCOUNT is required",
+		},
+		{
+			name: "account key missing storage key",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeAccountKey,
+				StorageAccountName: "testaccount",
+			},
+			setupEnv: func() {
+				os.Unsetenv("AZURE_STORAGE_KEY")
+			},
+			cleanupEnv: func() {},
+			expectErr:  true,
+			errMsg:     "AZURE_STORAGE_KEY is required for account key authentication",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setupEnv != nil {
+				tt.setupEnv()
+			}
+			defer tt.cleanupEnv()
+
+			err := tt.config.Validate()
+			if (err != nil) != tt.expectErr {
+				t.Errorf("expectErr=%v, got=%v, err=%v", tt.expectErr, err != nil, err)
+			}
+			if tt.expectErr && tt.errMsg != "" && (err == nil || err.Error() != tt.errMsg) {
+				t.Errorf("expected error message %q, got %q", tt.errMsg, err)
+			}
+		})
+	}
+}
+
+// TestValidateAzureAuthConfig_SAS tests SAS token auth validation
+func TestValidateAzureAuthConfig_SAS(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     *AzureAuthConfig
+		setupEnv   func()
+		cleanupEnv func()
+		expectErr  bool
+	}{
+		{
+			name: "valid SAS auth",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeSAS,
+				StorageAccountName: "testaccount",
+			},
+			setupEnv: func() {
+				os.Setenv("AZURE_STORAGE_SAS_TOKEN", "sv=2021-06-08&...")
+			},
+			cleanupEnv: func() {
+				os.Unsetenv("AZURE_STORAGE_SAS_TOKEN")
+			},
+			expectErr: false,
+		},
+		{
+			name: "SAS missing token",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeSAS,
+				StorageAccountName: "testaccount",
+			},
+			setupEnv: func() {
+				os.Unsetenv("AZURE_STORAGE_SAS_TOKEN")
+			},
+			cleanupEnv: func() {},
+			expectErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setupEnv != nil {
+				tt.setupEnv()
+			}
+			defer tt.cleanupEnv()
+
+			err := tt.config.Validate()
+			if (err != nil) != tt.expectErr {
+				t.Errorf("expectErr=%v, got=%v", tt.expectErr, err != nil)
+			}
+		})
+	}
+}
+
+// TestValidateAzureAuthConfig_MSI tests managed identity auth validation
+func TestValidateAzureAuthConfig_MSI(t *testing.T) {
+	config := &AzureAuthConfig{
+		Mode:               AuthModeMSI,
+		StorageAccountName: "testaccount",
+	}
+
+	err := config.Validate()
+	if err != nil {
+		t.Errorf("MSI auth should not require additional setup, got error: %v", err)
+	}
+}
+
+// TestValidateAzureAuthConfig_SPN tests service principal auth validation
+func TestValidateAzureAuthConfig_SPN(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     *AzureAuthConfig
+		setupEnv   func()
+		cleanupEnv func()
+		expectErr  bool
+	}{
+		{
+			name: "valid SPN auth",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeSPN,
+				StorageAccountName: "testaccount",
+				SPNClientID:        "client-id",
+				SPNClientSecret:    "secret",
+				TenantID:           "tenant-id",
+			},
+			setupEnv:   func() {},
+			cleanupEnv: func() {},
+			expectErr:  false,
+		},
+		{
+			name: "SPN missing client ID",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeSPN,
+				StorageAccountName: "testaccount",
+				SPNClientSecret:    "secret",
+				TenantID:           "tenant-id",
+			},
+			setupEnv:   func() {},
+			cleanupEnv: func() {},
+			expectErr:  true,
+		},
+		{
+			name: "SPN missing client secret",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeSPN,
+				StorageAccountName: "testaccount",
+				SPNClientID:        "client-id",
+				TenantID:           "tenant-id",
+			},
+			setupEnv:   func() {},
+			cleanupEnv: func() {},
+			expectErr:  true,
+		},
+		{
+			name: "SPN missing tenant ID",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeSPN,
+				StorageAccountName: "testaccount",
+				SPNClientID:        "client-id",
+				SPNClientSecret:    "secret",
+			},
+			setupEnv:   func() {},
+			cleanupEnv: func() {},
+			expectErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setupEnv != nil {
+				tt.setupEnv()
+			}
+			defer tt.cleanupEnv()
+
+			err := tt.config.Validate()
+			if (err != nil) != tt.expectErr {
+				t.Errorf("expectErr=%v, got=%v", tt.expectErr, err != nil)
+			}
+		})
+	}
+}
+
+// TestValidateAzureAuthConfig_FederatedToken tests federated token auth validation
+func TestValidateAzureAuthConfig_FederatedToken(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     *AzureAuthConfig
+		setupEnv   func()
+		cleanupEnv func()
+		expectErr  bool
+	}{
+		{
+			name: "federated token missing file",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeFederatedToken,
+				StorageAccountName: "testaccount",
+				FederatedClientID:  "client-id",
+				TenantID:           "tenant-id",
+			},
+			setupEnv:   func() {},
+			cleanupEnv: func() {},
+			expectErr:  true,
+		},
+		{
+			name: "federated token missing client ID",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeFederatedToken,
+				StorageAccountName: "testaccount",
+				FederatedTokenFile: "/etc/token",
+				TenantID:           "tenant-id",
+			},
+			setupEnv:   func() {},
+			cleanupEnv: func() {},
+			expectErr:  true,
+		},
+		{
+			name: "federated token missing tenant ID",
+			config: &AzureAuthConfig{
+				Mode:               AuthModeFederatedToken,
+				StorageAccountName: "testaccount",
+				FederatedTokenFile: "/etc/token",
+				FederatedClientID:  "client-id",
+			},
+			setupEnv:   func() {},
+			cleanupEnv: func() {},
+			expectErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setupEnv != nil {
+				tt.setupEnv()
+			}
+			defer tt.cleanupEnv()
+
+			err := tt.config.Validate()
+			if (err != nil) != tt.expectErr {
+				t.Errorf("expectErr=%v, got=%v, err=%v", tt.expectErr, err != nil, err)
+			}
+		})
+	}
+}
+
+// TestValidateAzureAuthConfig_AzCLI tests Azure CLI auth validation
+func TestValidateAzureAuthConfig_AzCLI(t *testing.T) {
+	config := &AzureAuthConfig{
+		Mode:               AuthModeAzCLI,
+		StorageAccountName: "testaccount",
+	}
+
+	err := config.Validate()
+	if err != nil {
+		t.Errorf("AzCLI auth should not require additional setup, got error: %v", err)
+	}
+}
+
+// TestValidateAzureAuthConfig_UnknownMode tests unknown auth mode
+func TestValidateAzureAuthConfig_UnknownMode(t *testing.T) {
+	config := &AzureAuthConfig{
+		Mode:               "unknown-mode",
+		StorageAccountName: "testaccount",
+	}
+
+	err := config.Validate()
+	if err == nil {
+		t.Fatal("expected error for unknown auth mode")
 	}
 }
