@@ -45,7 +45,7 @@ func main() {
 
 	// Initialize the S3 proxy server with the router, configuration, and logger.
 	// This sets up all routes, middleware, and connects the Azure backend.
-	_, err = server.NewS3ProxyServer(router, cfg, logger.GetZapLogger())
+	proxyServer, err := server.NewS3ProxyServer(router, cfg, logger.GetZapLogger())
 	if err != nil {
 		logger.Crit("failed to create S3 proxy server", zap.Error(err))
 	}
@@ -91,6 +91,12 @@ func main() {
 
 	// Perform graceful shutdown with timeout.
 	logger.Info("shutting down server")
+
+	// Close the proxy server to clean up resources (especially cache manager)
+	if err := proxyServer.Close(); err != nil {
+		logger.Error("error closing proxy server", zap.Error(err))
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

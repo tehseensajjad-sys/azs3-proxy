@@ -3,10 +3,11 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 // Config holds all proxy configuration loaded from environment variables.
-// It includes settings for HTTP server, TLS, Azure authentication, S3 authentication, and logging.
+// It includes settings for HTTP server, TLS, Azure authentication, S3 authentication, logging, and caching.
 type Config struct {
 	// HTTP Server configuration
 	ListenAddr string // Address and port to listen on (default: :8080)
@@ -27,16 +28,38 @@ type Config struct {
 	LogLevel string // Log level: debug, info, warn, error, crit
 	LogFile  string // Path to log file (empty string means console only)
 	LogMode  string // Logging mode: console, file, or both
+
+	// Local caching configuration
+	CacheEnabled bool   // Whether to enable local caching of objects
+	CachePath    string // Directory path for cached objects
+	CacheMaxSize int64  // Maximum cache size in bytes (e.g., 1GB = 1073741824)
+	CacheTTL     int    // Time-to-live for cache entries in seconds (default: 3600 = 1 hour)
 }
 
 // LoadConfig loads all proxy configuration from environment variables.
-// It loads Azure auth config, S3 credentials, and logging settings,
+// It loads Azure auth config, S3 credentials, logging, and cache settings,
 // then validates all required fields are present.
 func LoadConfig() (*Config, error) {
 	// Load and parse Azure authentication configuration from environment
 	azureAuth, err := LoadAzureAuthConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Azure authentication config: %w", err)
+	}
+
+	// Parse cache max size from environment (default: 1GB)
+	cacheMaxSize := int64(1073741824) // 1 GB default
+	if cacheSizeStr := os.Getenv("CACHE_MAX_SIZE"); cacheSizeStr != "" {
+		if size, err := strconv.ParseInt(cacheSizeStr, 10, 64); err == nil {
+			cacheMaxSize = size
+		}
+	}
+
+	// Parse cache TTL from environment (default: 3600 seconds = 1 hour)
+	cacheTTL := 3600
+	if cacheTTLStr := os.Getenv("CACHE_TTL"); cacheTTLStr != "" {
+		if ttl, err := strconv.Atoi(cacheTTLStr); err == nil && ttl > 0 {
+			cacheTTL = ttl
+		}
 	}
 
 	// Build configuration from environment variables with defaults
@@ -51,6 +74,10 @@ func LoadConfig() (*Config, error) {
 		LogLevel:          getEnv("LOG_LEVEL", "info"),
 		LogFile:           getEnv("LOG_FILE", ""),
 		LogMode:           getEnv("LOG_MODE", "console"),
+		CacheEnabled:      getEnv("CACHE_ENABLED", "false") == "true",
+		CachePath:         getEnv("CACHE_PATH", "/tmp/s3-azure-proxy-cache"),
+		CacheMaxSize:      cacheMaxSize,
+		CacheTTL:          cacheTTL,
 	}
 
 	// Validate all required configuration is present and valid
@@ -81,6 +108,19 @@ func (c *Config) Validate() error {
 	if c.EnableTLS {
 		if c.CertFile == "" || c.KeyFile == "" {
 			return fmt.Errorf("TLS_CERT_FILE and TLS_KEY_FILE are required when ENABLE_TLS is true")
+		}
+	}
+
+	// Validate cache configuration if enabled
+	if c.CacheEnabled {
+		if c.CachePath == "" {
+			return fmt.Errorf("CACHE_PATH is required when CACHE_ENABLED is true")
+		}
+		if c.CacheMaxSize <= 0 {
+			return fmt.Errorf("CACHE_MAX_SIZE must be positive when caching is enabled")
+		}
+		if c.CacheTTL <= 0 {
+			return fmt.Errorf("CACHE_TTL must be positive when caching is enabled")
 		}
 	}
 

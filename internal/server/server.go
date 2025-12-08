@@ -11,6 +11,7 @@ import (
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/auth"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/backend"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/backend/azureblob"
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/cache"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/handler"
 )
@@ -18,11 +19,12 @@ import (
 // S3ProxyServer represents the HTTP server that proxies S3 API requests to Azure Blob Storage.
 // It handles routing, request validation, and coordinates backend storage operations.
 type S3ProxyServer struct {
-	router  *chi.Mux               // Chi router for HTTP request routing
-	config  *config.Config         // Configuration containing auth and server settings
-	logger  *zap.Logger            // Logger for request and error logging
-	backend backend.StorageBackend // Storage backend implementation (Azure Blob Storage)
-	auth    *auth.AuthVerifier     // AWS SigV4 signature verifier
+	router       *chi.Mux               // Chi router for HTTP request routing
+	config       *config.Config         // Configuration containing auth and server settings
+	logger       *zap.Logger            // Logger for request and error logging
+	backend      backend.StorageBackend // Storage backend implementation (Azure Blob Storage)
+	auth         *auth.AuthVerifier     // AWS SigV4 signature verifier
+	cacheManager *cache.CacheManager    // Optional cache manager for local object caching
 }
 
 // NewS3ProxyServer creates and initializes a new S3 proxy server with the provided configuration.
@@ -121,9 +123,33 @@ func (s *S3ProxyServer) authMiddleware(next http.Handler) http.Handler {
 
 // registerRoutes registers all S3 API routes with their corresponding handler functions.
 // Routes are organized by HTTP method and path, with special handling for query parameters.
+// If caching is configured, initializes a cache manager and attaches it to the handler.
 func (s *S3ProxyServer) registerRoutes() {
 	// Create S3 API handler with backend and logger
 	s3Handler := handler.NewS3Handler(s.backend, s.logger)
+
+	// Initialize cache manager if caching is enabled in configuration
+	if s.config.CacheEnabled {
+		cacheManager, err := cache.NewCacheManager(
+			s.config.CachePath,
+			s.config.CacheMaxSize,
+			s.config.CacheTTL,
+		)
+		if err != nil {
+			s.logger.Error("failed to initialize cache manager, caching disabled",
+				zap.Error(err),
+				zap.String("cache_path", s.config.CachePath))
+		} else {
+			// Store cache manager in server for cleanup on shutdown
+			s.cacheManager = cacheManager
+			// Attach cache manager to handler
+			s3Handler.SetCacheManager(cacheManager)
+			s.logger.Info("cache manager initialized",
+				zap.String("cache_path", s.config.CachePath),
+				zap.Int64("cache_max_size", s.config.CacheMaxSize),
+				zap.Int("cache_ttl_seconds", s.config.CacheTTL))
+		}
+	}
 
 	// Health check endpoint (no authentication required)
 	s.router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -210,4 +236,17 @@ func (s *S3ProxyServer) registerRoutes() {
 
 	// Object operations: POST for multipart upload completion
 	s.router.Post("/{bucket}/*", s3Handler.PostObjectHandler)
+}
+
+// Close performs graceful shutdown of the server resources.
+// It closes the cache manager if it was initialized.
+// Should be called before application shutdown.
+func (s *S3ProxyServer) Close() error {
+	if s.cacheManager != nil {
+		if err := s.cacheManager.Close(); err != nil {
+			s.logger.Error("failed to close cache manager", zap.Error(err))
+			return err
+		}
+	}
+	return nil
 }

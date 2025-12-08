@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/xml"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -12,23 +14,40 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/backend"
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/cache"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/models"
 )
 
 // S3Handler handles all S3 API requests and converts them to backend storage operations.
 // It acts as a bridge between S3 API semantics and the underlying storage backend.
+// It includes optional local caching support for frequently accessed objects.
 type S3Handler struct {
-	backend backend.StorageBackend // Storage backend implementation (Azure Blob Storage)
-	logger  *zap.Logger            // Logger for request and error logging
+	backend      backend.StorageBackend // Storage backend implementation (Azure Blob Storage)
+	logger       *zap.Logger            // Logger for request and error logging
+	cacheManager *cache.CacheManager    // Optional cache manager for storing/retrieving objects locally
 }
 
 // NewS3Handler creates and returns a new S3 API handler instance.
 // It requires a storage backend implementation and logger for operation.
+// Optional cache manager can be provided for local caching support (pass nil to disable caching).
 func NewS3Handler(backend backend.StorageBackend, logger *zap.Logger) *S3Handler {
 	return &S3Handler{
-		backend: backend,
-		logger:  logger,
+		backend:      backend,
+		logger:       logger,
+		cacheManager: nil,
 	}
+}
+
+// SetCacheManager sets the cache manager for the handler to enable local caching.
+// This is called during server initialization if caching is configured.
+func (h *S3Handler) SetCacheManager(cm *cache.CacheManager) {
+	h.cacheManager = cm
+}
+
+// generateCacheKey creates a cache key from bucket and object key.
+// Format: "bucket/key" to uniquely identify each object across buckets.
+func generateCacheKey(bucket, key string) string {
+	return bucket + "/" + key
 }
 
 // writeErrorResponse writes an S3-formatted XML error response to the client.
@@ -242,6 +261,17 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If caching is enabled, invalidate the old cached version of this object
+	// so that the next GET request will fetch the fresh version from backend
+	if h.cacheManager != nil {
+		cacheKey := generateCacheKey(bucket, key)
+		if err := h.cacheManager.InvalidateObject(cacheKey); err != nil {
+			h.logger.Warn("failed to invalidate cache after put",
+				zap.Error(err),
+				zap.String("cache_key", cacheKey))
+		}
+	}
+
 	h.logger.Info("object uploaded successfully",
 		zap.String("bucket", bucket),
 		zap.String("key", key),
@@ -264,6 +294,35 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If caching is enabled, check cache first
+	if h.cacheManager != nil {
+		cacheKey := generateCacheKey(bucket, key)
+		cachedFilePath, err := h.cacheManager.GetObjectFromCache(cacheKey)
+		if err == nil && cachedFilePath != "" {
+			// Found in cache! Serve from local file
+			h.logger.Debug("Serving object from cache",
+				zap.String("bucket", bucket),
+				zap.String("key", key),
+				zap.String("cache_path", cachedFilePath))
+
+			// Read and serve cached file
+			data, err := os.ReadFile(cachedFilePath)
+			if err == nil {
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("ETag", "\"0\"")
+				w.Header().Set("X-Cache-Hit", "true")
+				w.WriteHeader(http.StatusOK)
+				w.Write(data)
+				return
+			}
+			// If we can't read the cached file, fall through to fetch from backend
+			h.logger.Warn("failed to read cached file, fetching from backend",
+				zap.Error(err),
+				zap.String("cache_path", cachedFilePath))
+		}
+	}
+
+	// Not in cache or caching disabled - fetch from backend
 	body, err := h.backend.GetObject(r.Context(), bucket, key)
 	if err != nil {
 		h.logger.Error("failed to get object",
@@ -286,16 +345,81 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		zap.String("bucket", bucket),
 		zap.String("key", key))
 
+	// If caching is enabled, cache the object for future requests
+	// We buffer the response to avoid race conditions with async caching
+	var objectData []byte
+	if h.cacheManager != nil {
+		var readErr error
+		// Read entire object into memory to cache it
+		objectData, readErr = io.ReadAll(body)
+		if readErr != nil {
+			h.logger.Error("failed to read object for caching",
+				zap.Error(readErr),
+				zap.String("bucket", bucket),
+				zap.String("key", key))
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("ETag", "\"0\"")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Cache the object asynchronously to avoid blocking response
+		cacheKey := generateCacheKey(bucket, key)
+		go func() {
+			if err := h.cacheManager.CacheObject(cacheKey, objectData); err != nil {
+				h.logger.Warn("failed to cache object after get",
+					zap.Error(err),
+					zap.String("cache_key", cacheKey))
+			}
+		}()
+	} else {
+		// If caching disabled, read the object normally
+		var readErr error
+		objectData, readErr = io.ReadAll(body)
+		if readErr != nil {
+			h.logger.Error("failed to read object",
+				zap.Error(readErr),
+				zap.String("bucket", bucket),
+				zap.String("key", key))
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("ETag", "\"0\"")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("ETag", "\"0\"")
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, body)
+	w.Write(objectData)
 }
 
 // HeadObjectHandler handles HEAD /{bucket}/{key}
 func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 	bucket, key := extractBucketAndKey(r)
 	h.logger.Debug("HeadObject request", zap.String("bucket", bucket), zap.String("key", key))
+
+	// If caching is enabled, check cache first
+	if h.cacheManager != nil {
+		cacheKey := generateCacheKey(bucket, key)
+		cachedFilePath, err := h.cacheManager.GetObjectFromCache(cacheKey)
+		if err == nil && cachedFilePath != "" {
+			// Found in cache! Return metadata without serving content
+			if info, err := os.Stat(cachedFilePath); err == nil {
+				h.logger.Debug("HeadObject served from cache",
+					zap.String("bucket", bucket),
+					zap.String("key", key),
+					zap.Int64("size", info.Size()))
+
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
+				w.Header().Set("ETag", "\"0\"")
+				w.Header().Set("X-Cache-Hit", "true")
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+		}
+	}
 
 	exists, err := h.backend.HeadObject(r.Context(), bucket, key)
 	if err != nil {
@@ -350,6 +474,17 @@ func (h *S3Handler) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// If caching is enabled, invalidate the deleted object from cache
+	if h.cacheManager != nil {
+		cacheKey := generateCacheKey(bucket, key)
+		if err := h.cacheManager.InvalidateObject(cacheKey); err != nil {
+			h.logger.Warn("failed to invalidate cache after delete",
+				zap.Error(err),
+				zap.String("cache_key", cacheKey))
+		}
+	}
+
+	h.logger.Info("object deleted successfully", zap.String("bucket", bucket), zap.String("key", key))
 	w.WriteHeader(http.StatusNoContent)
 }
 
