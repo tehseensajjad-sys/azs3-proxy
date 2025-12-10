@@ -1,4 +1,4 @@
-# s3-azure-proxy
+# azs3-proxy
 
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)]()
 [![Language: Go](https://img.shields.io/badge/language-Go-blue)]()
@@ -10,7 +10,7 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 
 ## Overview
 
-**s3-azure-proxy** is a lightweight, production-ready proxy server that:
+**azs3-proxy** is a lightweight, production-ready proxy server that:
 
 - Exposes an S3-compatible REST API (with SigV4 auth)
 - Translates S3 requests to Azure Blob Storage operations
@@ -31,6 +31,10 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 - ✅ Telemetry with OpenTelemetry (Prometheus & Azure Monitor)
 - ✅ Easy Docker deployment
 
+## API Compatibility
+
+For a detailed list of supported S3 operations and their Azure Blob Storage equivalents, please refer to the [API Compatibility Matrix](COMPATIBILITY.md).
+
 ## Use Cases
 
 - Migrate S3-dependent applications to Azure
@@ -50,9 +54,9 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 
 ```bash
 git clone https://github.com/vibhansa-msft/s3-azure-proxy.git
-cd s3-azure-proxy
+cd azs3-proxy
 go mod download
-go build -o bin/s3-proxy ./cmd/proxy
+go build -o bin/azs3-proxy ./cmd/proxy
 ```
 
 ### Configuration
@@ -81,7 +85,7 @@ AZURE_MONITOR_CONNECTION_STRING="InstrumentationKey=..."
 ### Running
 
 ```bash
-./bin/s3-proxy
+./bin/azs3-proxy
 ```
 
 The proxy listens on `http://localhost:8080` by default.
@@ -91,7 +95,7 @@ The proxy listens on `http://localhost:8080` by default.
 ### Project Structure
 
 ```
-s3-azure-proxy/
+azs3-proxy/
 ├── cmd/
 │   └── proxy/
 │       └── main.go              # Entry point
@@ -315,7 +319,7 @@ export TLS_CERT_FILE=/path/to/cert.pem
 export TLS_KEY_FILE=/path/to/key.pem
 
 # Start proxy (now listening on HTTPS)
-./bin/s3-proxy
+./bin/azs3-proxy
 ```
 
 Then use HTTPS endpoint with S3 clients:
@@ -340,12 +344,12 @@ export LOG_LEVEL=info
 
 # File logging only
 export LOG_MODE=file
-export LOG_FILE=/var/log/s3-proxy.log
+export LOG_FILE=/var/log/azs3-proxy.log
 export LOG_LEVEL=debug
 
 # Both console and file logging
 export LOG_MODE=both
-export LOG_FILE=/var/log/s3-proxy.log
+export LOG_FILE=/var/log/azs3-proxy.log
 export LOG_LEVEL=info
 ```
 
@@ -362,7 +366,7 @@ export LOG_LEVEL=info
 Logs are output in JSON format with the following fields:
 ```json
 {
-  "[s3-proxy 1234] {
+  "[azs3-proxy 1234] {
     "timestamp": "2025-12-05 14:30:45.123",
     "level": "INFO",
     "msg": "object uploaded successfully",
@@ -375,7 +379,7 @@ Logs are output in JSON format with the following fields:
 ```
 
 Each log line includes:
-- **Program name and PID**: `[s3-proxy 1234]` at the start of each line
+- **Program name and PID**: `[azs3-proxy 1234]` at the start of each line
 - **Timestamp**: ISO8601 format with millisecond precision
 - **Log level**: DEBUG, INFO, WARN, ERROR, FATAL
 - **Message**: The primary log message
@@ -391,7 +395,7 @@ To change the log level while the proxy is running without restarting, modify th
 ### Building
 
 ```bash
-go build -o bin/s3-proxy ./cmd/proxy
+go build -o bin/azs3-proxy ./cmd/proxy
 ```
 
 ### Running Tests
@@ -441,7 +445,7 @@ Current test coverage: **61.4%** across all packages
 ### Build Docker Image
 
 ```bash
-docker build -t s3-azure-proxy:latest .
+docker build -t azs3-proxy:latest .
 ```
 
 ### Run Container
@@ -452,7 +456,7 @@ docker run -p 8080:8080 \
   -e AZURE_STORAGE_KEY=yourkey \
   -e S3_ACCESS_KEY=AKIA1234567890ABCDEF \
   -e S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY \
-  s3-azure-proxy:latest
+  azs3-proxy:latest
 ```
 
 ### Docker Compose
@@ -460,8 +464,8 @@ docker run -p 8080:8080 \
 ```yaml
 version: '3.8'
 services:
-  s3-proxy:
-    image: s3-azure-proxy:latest
+  azs3-proxy:
+    image: azs3-proxy:latest
     ports:
       - "8080:8080"
     environment:
@@ -482,38 +486,6 @@ services:
 - Parallel multipart upload handling
 - Optional caching layer (future enhancement)
 
-## Roadmap
-
-- [x] Core bucket/object operations (v0.1)
-- [x] SigV4 authentication (v0.1)
-- [x] Multipart upload (v0.1)
-- [x] Unit test coverage (v0.1)
-- [ ] Versioning support (v0.2)
-- [ ] Object tagging (v0.2)
-- [ ] Server-side encryption emulation (v0.2)
-- [ ] Presigned URLs (v0.3)
-- [ ] Performance benchmarks & tuning (v0.3)
-- [ ] Helm chart for Kubernetes (v1.0)
-- [ ] Production hardening & security audit (v1.0)
-
-## Contributing
-
-Contributions are welcome! Please follow the process:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Write tests for your changes
-4. Commit changes (`git commit -am 'Add my feature'`)
-5. Push to branch (`git push origin feature/my-feature`)
-6. Open a Pull Request
-
-### Code Quality
-
-- All PRs must pass unit tests (`go test ./...`)
-- Maintain test coverage at 75%+
-- Follow Go conventions and idioms
-- Add documentation for new features
-
 ## License
 
 MIT License – see [LICENSE](LICENSE) file for details.
@@ -533,4 +505,3 @@ For issues, questions, or suggestions:
 - Check existing [discussions](https://github.com/vibhansa-msft/s3-azure-proxy/discussions)
 - Review [contributing guide](CONTRIBUTING.md)
 
-**Status:** ⚠️ Alpha – API may change. Not production-ready until v1.0.
