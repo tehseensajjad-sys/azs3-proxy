@@ -1,8 +1,8 @@
 .PHONY: all build test lint clean docker-build
 
 # Build variables
-BINARY_NAME=s3-azure-proxy
-DOCKER_IMAGE=s3-azure-proxy
+BINARY_NAME=azs3-proxy
+DOCKER_IMAGE=azs3-proxy
 VERSION?=0.1.0
 
 all: lint test build

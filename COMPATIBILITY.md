@@ -1,6 +1,6 @@
 # API Compatibility Matrix
 
-This document details the S3 API operations supported by `s3-azure-proxy` and their compatibility status with Azure Blob Storage.
+This document details the S3 API operations supported by `azs3-proxy` and their compatibility status with Azure Blob Storage.
 
 ## Bucket Operations
 

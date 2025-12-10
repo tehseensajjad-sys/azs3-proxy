@@ -14,14 +14,14 @@ COPY . .
 
 # Build the application
 # CGO_ENABLED=0 for static binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /s3-azure-proxy ./cmd/proxy
+RUN CGO_ENABLED=0 GOOS=linux go build -o /azs3-proxy ./cmd/proxy
 
 # Final stage
 FROM gcr.io/distroless/static:nonroot
 
 WORKDIR /
 
-COPY --from=builder /s3-azure-proxy /s3-azure-proxy
+COPY --from=builder /azs3-proxy /azs3-proxy
 
 # Expose port (default 8080)
 EXPOSE 8080
@@ -29,4 +29,4 @@ EXPOSE 8080
 # Run as non-root user
 USER 65532:65532
 
-ENTRYPOINT ["/s3-azure-proxy"]
+ENTRYPOINT ["/azs3-proxy"]

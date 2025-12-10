@@ -1,6 +1,6 @@
 # OpenTelemetry Integration
 
-The s3-azure-proxy supports comprehensive metrics and logging export via OpenTelemetry (OTEL), enabling integration with multiple observability backends.
+The azs3-proxy supports comprehensive metrics and logging export via OpenTelemetry (OTEL), enabling integration with multiple observability backends.
 
 ## Features
 
@@ -45,7 +45,7 @@ TELEMETRY_METRICS_ENABLED=true                      # Default: false
 TELEMETRY_LOGS_ENABLED=true                         # Default: false
 
 # Service information
-SERVICE_NAME=s3-azure-proxy                         # Default: s3-azure-proxy
+SERVICE_NAME=azs3-proxy                             # Default: azs3-proxy
 SERVICE_VERSION=1.0.0                               # Default: 1.0.0
 ENVIRONMENT=production                              # Default: development
 
