@@ -27,5 +27,6 @@ This document outlines the pending tasks, improvements, and future features for 
 - [ ] **[P2] Load/Performance Testing**: Benchmarks for throughput and latency, especially measuring the impact of the caching layer.
 
 ## 5. Documentation
-- [ ] **[P1] API Compatibility Matrix**: Document exactly which S3 APIs are supported, which headers are respected, and any known deviations from the AWS S3 spec.
+- [x] **[P1] API Compatibility Matrix**: Document exactly which S3 APIs are supported, which headers are respected, and any known deviations from the AWS S3 spec.
 - [ ] **[P2] Configuration Guide**: A comprehensive guide on all environment variables (expanding on `TELEMETRY.md` to include Auth, Server, and Cache configs).
+
