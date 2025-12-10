@@ -398,6 +398,22 @@ To change the log level while the proxy is running without restarting, modify th
 go build -o bin/azs3-proxy ./cmd/proxy
 ```
 
+### Testing
+
+Run unit tests:
+
+```bash
+make test
+```
+
+Run compliance/integration tests (requires Azure credentials):
+
+```bash
+export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=..."
+make test-compliance
+```
+
+
 ### Running Tests
 
 ```bash

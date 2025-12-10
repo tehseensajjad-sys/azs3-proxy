@@ -13,6 +13,9 @@ build:
 test:
 	go test -v -race ./...
 
+test-compliance:
+	go test -v -race ./test/compliance/...
+
 lint:
 	golangci-lint run
 

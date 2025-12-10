@@ -23,10 +23,16 @@ This document outlines the pending tasks, improvements, and future features for 
 - [ ] **[P2] Helm Chart**: Create Kubernetes deployment charts for easy deployment.
 
 ## 4. Testing & QA
-- [ ] **[P1] S3 Compliance Tests**: Run a standard S3 compliance test suite (e.g., `mint` or `ceph-s3-tests`) against the proxy to identify compatibility gaps.
+- [x] **[P1] S3 Compliance Tests**: Implemented a custom Go-based compliance test suite (`test/compliance`) covering CRUD, Multipart, Versioning, and Metadata operations.
 - [ ] **[P2] Load/Performance Testing**: Benchmarks for throughput and latency, especially measuring the impact of the caching layer.
 
 ## 5. Documentation
-- [x] **[P1] API Compatibility Matrix**: Document exactly which S3 APIs are supported, which headers are respected, and any known deviations from the AWS S3 spec.
 - [ ] **[P2] Configuration Guide**: A comprehensive guide on all environment variables (expanding on `TELEMETRY.md` to include Auth, Server, and Cache configs).
+
+## Recently Completed
+- **S3 Compliance Tests**: Added a comprehensive integration test suite for S3 compatibility verification.
+- **Azure Monitor Exporter**: Added support for exporting metrics to Azure Monitor.
+- **API Compatibility Matrix**: Documented supported S3 operations.
+- **CopyObject Support**: Implemented `CopyObject` using download-upload strategy.
+
 
