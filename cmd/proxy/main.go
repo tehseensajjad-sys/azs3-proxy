@@ -15,9 +15,8 @@ import (
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/logging"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/server"
-)
-
-// main is the entry point for the S3 to Azure Blob Storage proxy application.
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
+) // main is the entry point for the S3 to Azure Blob Storage proxy application.
 // It performs the following initialization steps:
 //  1. Loads configuration from environment variables
 //  2. Initializes the logging system (file, console, or both)
@@ -40,12 +39,23 @@ func main() {
 	}
 	defer logger.Sync()
 
+	// Initialize telemetry manager for metrics and logs export.
+	ctx := context.Background()
+	telMgr, err := telemetry.NewManager(ctx)
+	if err != nil {
+		logger.Error("failed to initialize telemetry manager", zap.Error(err))
+		// Continue without telemetry rather than failing startup
+	}
+	if telMgr != nil && telMgr.IsEnabled() {
+		logger.Info("telemetry enabled", zap.String("config", "see TELEMETRY.md for details"))
+	}
+
 	// Create the Chi HTTP router for request routing and middleware.
 	router := chi.NewRouter()
 
-	// Initialize the S3 proxy server with the router, configuration, and logger.
+	// Initialize the S3 proxy server with the router, configuration, logger, and telemetry manager.
 	// This sets up all routes, middleware, and connects the Azure backend.
-	proxyServer, err := server.NewS3ProxyServer(router, cfg, logger.GetZapLogger())
+	proxyServer, err := server.NewS3ProxyServer(router, cfg, logger.GetZapLogger(), telMgr)
 	if err != nil {
 		logger.Crit("failed to create S3 proxy server", zap.Error(err))
 	}
@@ -95,6 +105,15 @@ func main() {
 	// Close the proxy server to clean up resources (especially cache manager)
 	if err := proxyServer.Close(); err != nil {
 		logger.Error("error closing proxy server", zap.Error(err))
+	}
+
+	// Shutdown telemetry manager to flush any pending metrics
+	if telMgr != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := telMgr.Shutdown(shutdownCtx); err != nil {
+			logger.Error("error shutting down telemetry", zap.Error(err))
+		}
+		cancel()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -25,6 +25,9 @@ const (
 	// InvalidBucketName is returned when a bucket name does not meet S3 naming requirements
 	InvalidBucketName S3ErrorCode = "InvalidBucketName"
 
+	// InvalidArgument is returned when an argument is invalid
+	InvalidArgument S3ErrorCode = "InvalidArgument"
+
 	// InternalError is returned for unexpected server errors
 	InternalError S3ErrorCode = "InternalError"
 )
@@ -37,6 +40,7 @@ var ErrorCodeToHTTPStatus = map[S3ErrorCode]int{
 	BucketAlreadyExists: http.StatusConflict,            // 409
 	AccessDenied:        http.StatusForbidden,           // 403
 	InvalidBucketName:   http.StatusBadRequest,          // 400
+	InvalidArgument:     http.StatusBadRequest,          // 400
 	InternalError:       http.StatusInternalServerError, // 500
 }
 

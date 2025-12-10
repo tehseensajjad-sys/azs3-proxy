@@ -24,9 +24,11 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 - ✅ AWS Signature Version 4 authentication
 - ✅ Multipart uploads for large objects
 - ✅ Object versioning support
+- ✅ CopyObject support (server-side copy)
 - ✅ Streaming support (no full object buffering)
 - ✅ Connection pooling & concurrency optimization
 - ✅ Structured logging with zap
+- ✅ Telemetry with OpenTelemetry (Prometheus & Azure Monitor)
 - ✅ Easy Docker deployment
 
 ## Use Cases
@@ -69,8 +71,11 @@ AZURE_STORAGE_KEY=yourkey
 S3_ACCESS_KEY=AKIA1234567890ABCDEF
 S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
 
-# Logging
+# Logging & Telemetry
 LOG_LEVEL=info
+TELEMETRY_ENABLED=true
+AZURE_MONITOR_ENABLED=true
+AZURE_MONITOR_CONNECTION_STRING="InstrumentationKey=..."
 ```
 
 ### Running

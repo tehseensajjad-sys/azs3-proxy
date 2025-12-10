@@ -3,12 +3,18 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+
+	otlpmetric "go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	prometheusexporter "go.opentelemetry.io/otel/exporters/prometheus"
 )
 
 // MetricsProvider holds all metric instruments
@@ -141,9 +147,51 @@ func InitializeMeterProvider(ctx context.Context, cfg *TelemetryConfig) (metric.
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Create periodic reader with no exporter for now (placeholder)
-	reader := sdkmetric.NewPeriodicReader(&noOpExporter{}, sdkmetric.WithInterval(cfg.ExportInterval))
+	// Prometheus exporter: create exporter and serve metrics endpoint
+	if cfg.PrometheusEnabled {
+		exporter, err := prometheusexporter.New()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create prometheus exporter: %w", err)
+		}
 
+		// The exporter registers its collector with the prometheus default registry by default.
+		// Use promhttp's default handler which serves the default registry.
+		handler := promhttp.Handler()
+		path := cfg.PrometheusPath
+		port := cfg.PrometheusPort
+		go func() {
+			mux := http.NewServeMux()
+			mux.Handle(path, handler)
+			_ = http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+		}()
+
+		// Use the exporter as an sdkmetric.Reader to create a MeterProvider
+		provider := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithReader(exporter))
+		return provider, nil
+	}
+
+	if cfg.OTLPEnabled {
+		exporter, err := otlpmetric.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create otlp metric exporter: %w", err)
+		}
+		reader := sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(cfg.ExportInterval))
+		provider := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithReader(reader))
+		return provider, nil
+	}
+
+	if cfg.AzureMonitorEnabled {
+		exporter, err := NewAzureMonitorExporter(cfg.AzureMonitorConnString)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create azure monitor exporter: %w", err)
+		}
+		reader := sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(cfg.ExportInterval))
+		provider := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithReader(reader))
+		return provider, nil
+	}
+
+	// Default: no-op exporter via periodic reader
+	reader := sdkmetric.NewPeriodicReader(&noOpExporter{}, sdkmetric.WithInterval(cfg.ExportInterval))
 	provider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
 		sdkmetric.WithReader(reader),

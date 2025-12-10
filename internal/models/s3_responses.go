@@ -49,6 +49,13 @@ type Object struct {
 	StorageClass string `xml:"StorageClass"` // Storage class (e.g., STANDARD)
 }
 
+// CopyObjectResult represents the response for a successful object copy operation.
+type CopyObjectResult struct {
+	XMLName      xml.Name `xml:"CopyObjectResult"`
+	LastModified string   `xml:"LastModified"`
+	ETag         string   `xml:"ETag"`
+}
+
 // CopyObjectResponse represents the S3 API response for the CopyObject operation.
 // Contains metadata of the newly copied object.
 type CopyObjectResponse struct {

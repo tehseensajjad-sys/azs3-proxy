@@ -31,7 +31,7 @@ func TestNewS3ProxyServer(t *testing.T) {
 	defer logger.Sync()
 
 	// This should work with valid config
-	server, err := NewS3ProxyServer(router, cfg, logger)
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
 		t.Errorf("NewS3ProxyServer() failed: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestNewS3ProxyServerWithSASAuth(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
-	server, err := NewS3ProxyServer(router, cfg, logger)
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
 		t.Errorf("NewS3ProxyServer() with SAS failed: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestNewS3ProxyServerWithMSIAuth(t *testing.T) {
 	defer logger.Sync()
 
 	// MSI auth might fail in non-Azure environment, but should not panic
-	_, _ = NewS3ProxyServer(router, cfg, logger)
+	_, _ = NewS3ProxyServer(router, cfg, logger, nil)
 	// Server can be nil if MSI init fails, which is expected
 	if router == nil {
 		t.Error("Router should not be affected by MSI auth failure")
@@ -120,7 +120,7 @@ func TestNewS3ProxyServerWithServicePrincipalAuth(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
-	server, err := NewS3ProxyServer(router, cfg, logger)
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
 		t.Logf("NewS3ProxyServer() with SPN returned error (expected for test): %v", err)
 	}
@@ -150,7 +150,7 @@ func TestS3ProxyServerMiddleware(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
-	server, err := NewS3ProxyServer(router, cfg, logger)
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
 		t.Errorf("Failed to create server: %v", err)
 		return
@@ -187,7 +187,7 @@ func TestS3ProxyServerRouting(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
-	server, err := NewS3ProxyServer(router, cfg, logger)
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
 		t.Errorf("Failed to create server: %v", err)
 		return
@@ -224,7 +224,7 @@ func TestServerClose(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
-	server, err := NewS3ProxyServer(router, cfg, logger)
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestServerAuthMiddlewareWithValidSignature(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
-	server, err := NewS3ProxyServer(router, cfg, logger)
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestServerAuthMiddlewareWithMissingAuth(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
-	server, err := NewS3ProxyServer(router, cfg, logger)
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestServerIntegration_FullSetup(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
-	server, err := NewS3ProxyServer(router, cfg, logger)
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

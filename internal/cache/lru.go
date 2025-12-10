@@ -2,11 +2,15 @@ package cache
 
 import (
 	"container/list"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
 )
 
 // CacheEntry represents a single cached item with metadata.
@@ -38,6 +42,8 @@ type LRUCache struct {
 	cleanupTicker *time.Ticker             // Periodically cleans up expired entries
 	stopCleanup   chan struct{}            // Signal to stop cleanup goroutine
 	stats         *CacheStats              // Performance and operational statistics
+	telMgr        *telemetry.Manager       // Optional telemetry manager for metrics
+	ctx           context.Context          // Context for telemetry operations
 }
 
 // NewLRUCache creates a new LRU cache instance with specified parameters.
@@ -75,6 +81,8 @@ func NewLRUCache(cacheDir string, maxBytes int64, ttl time.Duration) (*LRUCache,
 		lruList:      list.New(),
 		stopCleanup:  make(chan struct{}),
 		stats:        &CacheStats{},
+		telMgr:       nil,
+		ctx:          context.Background(),
 	}
 
 	// Start background goroutine to clean up expired entries periodically
@@ -82,6 +90,13 @@ func NewLRUCache(cacheDir string, maxBytes int64, ttl time.Duration) (*LRUCache,
 	go cache.cleanupExpiredEntries()
 
 	return cache, nil
+}
+
+// SetTelemetryManager sets a telemetry manager for recording LRU events.
+func (lc *LRUCache) SetTelemetryManager(tm *telemetry.Manager) {
+	lc.mutex.Lock()
+	defer lc.mutex.Unlock()
+	lc.telMgr = tm
 }
 
 // Get retrieves a cached file, returning the file path if it exists and hasn't expired.
@@ -97,6 +112,14 @@ func (lc *LRUCache) Get(key string) (string, error) {
 	elem, exists := lc.entries[key]
 	if !exists {
 		lc.stats.RecordMiss()
+		if lc.telMgr != nil {
+			// Reduce cardinality: extract bucket from "bucket/key" cache key
+			bucket := key
+			if idx := strings.IndexByte(key, '/'); idx >= 0 {
+				bucket = key[:idx]
+			}
+			lc.telMgr.RecordCacheMiss(lc.ctx, bucket)
+		}
 		return "", nil // Entry not found
 	}
 
@@ -106,8 +129,18 @@ func (lc *LRUCache) Get(key string) (string, error) {
 	if time.Now().After(entry.ExpiresAt) {
 		// Entry has expired, remove it and return nil
 		lc.stats.RecordExpiration(entry.FileSize)
+		if lc.telMgr != nil {
+			lc.telMgr.RecordCacheExpiration(lc.ctx)
+		}
 		lc.removeEntry(elem)
 		lc.stats.RecordMiss()
+		if lc.telMgr != nil {
+			bucket := key
+			if idx := strings.IndexByte(key, '/'); idx >= 0 {
+				bucket = key[:idx]
+			}
+			lc.telMgr.RecordCacheMiss(lc.ctx, bucket)
+		}
 		return "", nil
 	}
 
@@ -116,6 +149,9 @@ func (lc *LRUCache) Get(key string) (string, error) {
 		// File doesn't exist, remove entry and return nil (miss)
 		lc.removeEntry(elem)
 		lc.stats.RecordMiss()
+		if lc.telMgr != nil {
+			lc.telMgr.RecordCacheMiss(lc.ctx, key)
+		}
 		return "", nil
 	}
 
@@ -123,6 +159,13 @@ func (lc *LRUCache) Get(key string) (string, error) {
 	entry.LastUsedAt = time.Now()
 	lc.lruList.MoveToBack(elem)
 	lc.stats.RecordHit()
+	if lc.telMgr != nil {
+		bucket := key
+		if idx := strings.IndexByte(key, '/'); idx >= 0 {
+			bucket = key[:idx]
+		}
+		lc.telMgr.RecordCacheHit(lc.ctx, bucket)
+	}
 
 	return entry.FilePath, nil
 }
@@ -180,6 +223,9 @@ func (lc *LRUCache) Put(key string, filePath string, fileSize int64) error {
 		oldest := lc.lruList.Front()
 		oldestEntry := oldest.Value.(*CacheEntry)
 		lc.stats.RecordEviction(oldestEntry.FileSize)
+		if lc.telMgr != nil {
+			lc.telMgr.RecordCacheEviction(lc.ctx, "size_limit")
+		}
 		lc.removeEntry(oldest)
 	}
 
@@ -306,6 +352,10 @@ func (lc *LRUCache) removeEntry(elem *list.Element) {
 
 	// Delete file from disk (ignore errors)
 	_ = os.Remove(entry.FilePath)
+	// Record eviction telemetry for explicit removals
+	if lc.telMgr != nil {
+		lc.telMgr.RecordCacheEviction(lc.ctx, "removed")
+	}
 }
 
 // cleanupExpiredEntries runs periodically in the background to remove expired entries.
@@ -332,6 +382,9 @@ func (lc *LRUCache) cleanupExpiredEntries() {
 			for _, elem := range toRemove {
 				entry := elem.Value.(*CacheEntry)
 				lc.stats.RecordExpiration(entry.FileSize)
+				if lc.telMgr != nil {
+					lc.telMgr.RecordCacheExpiration(lc.ctx)
+				}
 				lc.removeEntry(elem)
 			}
 

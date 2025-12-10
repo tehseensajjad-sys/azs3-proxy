@@ -1,16 +1,22 @@
 package cache
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
 )
 
 // CacheManager manages cached objects by wrapping the LRUCache and providing
 // higher-level operations for storing and retrieving S3 objects.
 // It handles reading from source, writing to cache, and serving from cache.
 type CacheManager struct {
-	cache *LRUCache
+	cache  *LRUCache          // Underlying LRU cache implementation
+	telMgr *telemetry.Manager // Optional telemetry manager for metrics export
+	ctx    context.Context    // Context for telemetry operations
 }
 
 // NewCacheManager creates a new cache manager with specified parameters.
@@ -31,11 +37,25 @@ func NewCacheManager(cacheDir string, maxBytes int64, ttlSeconds int) (*CacheMan
 	}
 
 	return &CacheManager{
-		cache: lruCache,
+		cache:  lruCache,
+		telMgr: nil,
+		ctx:    context.Background(),
 	}, nil
 }
 
-// CacheObject stores object data in the cache with the given key.
+// SetTelemetryManager sets the telemetry manager for recording cache metrics.
+// This is called during server initialization if telemetry is configured.
+func (cm *CacheManager) SetTelemetryManager(tm *telemetry.Manager) {
+	cm.telMgr = tm
+	if cm.cache != nil && tm != nil {
+		cm.cache.SetTelemetryManager(tm)
+		// ensure cache also has a context for telemetry
+		cm.cache.mutex.Lock()
+		cm.cache.ctx = cm.ctx
+		cm.cache.mutex.Unlock()
+	}
+}
+
 // It writes the data to a temporary file and then moves it into the cache.
 //
 // Parameters:
@@ -64,6 +84,11 @@ func (cm *CacheManager) CacheObject(key string, data []byte) error {
 		return fmt.Errorf("failed to add object to cache: %w", err)
 	}
 
+	// Record cache operation in telemetry
+	if cm.telMgr != nil {
+		cm.telMgr.RecordCacheOperation(cm.ctx, "put")
+	}
+
 	return nil
 }
 
@@ -71,7 +96,22 @@ func (cm *CacheManager) CacheObject(key string, data []byte) error {
 // Returns the file path if the object is cached and hasn't expired.
 // Returns empty string if the object is not cached, has expired, or no longer exists.
 func (cm *CacheManager) GetObjectFromCache(key string) (string, error) {
-	return cm.cache.Get(key)
+	filePath, err := cm.cache.Get(key)
+
+	// Record cache hit/miss in telemetry
+	if cm.telMgr != nil {
+		bucket := key
+		if i := strings.IndexByte(key, '/'); i >= 0 {
+			bucket = key[:i]
+		}
+		if filePath != "" {
+			cm.telMgr.RecordCacheHit(cm.ctx, bucket)
+		} else {
+			cm.telMgr.RecordCacheMiss(cm.ctx, bucket)
+		}
+	}
+
+	return filePath, err
 }
 
 // ReadCachedObject reads the entire contents of a cached object.
@@ -99,13 +139,27 @@ func (cm *CacheManager) ReadCachedObject(key string) ([]byte, error) {
 // InvalidateObject removes an object from the cache.
 // This can be called when an object is updated or deleted upstream.
 func (cm *CacheManager) InvalidateObject(key string) error {
-	return cm.cache.Delete(key)
+	err := cm.cache.Delete(key)
+
+	// Record cache eviction in telemetry
+	if cm.telMgr != nil && err == nil {
+		cm.telMgr.RecordCacheEviction(cm.ctx, "manual")
+	}
+
+	return err
 }
 
 // InvalidateAll removes all cached objects.
 // This can be called when the cache needs to be completely cleared.
 func (cm *CacheManager) InvalidateAll() error {
-	return cm.cache.Clear()
+	err := cm.cache.Clear()
+
+	// Record cache eviction in telemetry
+	if cm.telMgr != nil && err == nil {
+		cm.telMgr.RecordCacheEviction(cm.ctx, "clear_all")
+	}
+
+	return err
 }
 
 // CacheSize returns the current total size of all cached objects in bytes.

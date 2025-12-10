@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -20,6 +21,7 @@ type MockBackend struct {
 	CreateBucketFunc            func(ctx context.Context, bucketName string) error
 	DeleteBucketFunc            func(ctx context.Context, bucketName string) error
 	PutObjectFunc               func(ctx context.Context, bucketName, objectKey string, data io.Reader) error
+	CopyObjectFunc              func(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error
 	GetObjectFunc               func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error)
 	DeleteObjectFunc            func(ctx context.Context, bucketName, objectKey string) error
 	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, error)
@@ -61,6 +63,13 @@ func (m *MockBackend) DeleteBucket(ctx context.Context, bucketName string) error
 func (m *MockBackend) PutObject(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
 	if m.PutObjectFunc != nil {
 		return m.PutObjectFunc(ctx, bucketName, objectKey, data)
+	}
+	return nil
+}
+
+func (m *MockBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error {
+	if m.CopyObjectFunc != nil {
+		return m.CopyObjectFunc(ctx, srcBucket, srcKey, destBucket, destKey)
 	}
 	return nil
 }
@@ -1652,4 +1661,61 @@ func TestPutObjectHandler_WithCache(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", w.Code)
 	}
+}
+
+func TestPutObjectHandler_CopyObject(t *testing.T) {
+	logger := zap.NewNop()
+	mockBackend := &MockBackend{}
+	handler := NewS3Handler(mockBackend, logger)
+
+	t.Run("successful copy", func(t *testing.T) {
+		mockBackend.CopyObjectFunc = func(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error {
+			if srcBucket != "source-bucket" || srcKey != "source-key" {
+				return errors.New("unexpected source")
+			}
+			if destBucket != "dest-bucket" || destKey != "dest-key" {
+				return errors.New("unexpected destination")
+			}
+			return nil
+		}
+
+		req := httptest.NewRequest("PUT", "/dest-bucket/dest-key", nil)
+		req.Header.Set("x-amz-copy-source", "/source-bucket/source-key")
+
+		// Setup chi context
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("bucket", "dest-bucket")
+		rctx.URLParams.Add("*", "dest-key")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+		w := httptest.NewRecorder()
+		handler.PutObjectHandler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		// Check response body for CopyObjectResult
+		if !strings.Contains(w.Body.String(), "CopyObjectResult") {
+			t.Errorf("expected CopyObjectResult in body, got %s", w.Body.String())
+		}
+	})
+
+	t.Run("invalid copy source", func(t *testing.T) {
+		req := httptest.NewRequest("PUT", "/dest-bucket/dest-key", nil)
+		req.Header.Set("x-amz-copy-source", "invalid-format")
+
+		// Setup chi context
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("bucket", "dest-bucket")
+		rctx.URLParams.Add("*", "dest-key")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+		w := httptest.NewRecorder()
+		handler.PutObjectHandler(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+	})
 }

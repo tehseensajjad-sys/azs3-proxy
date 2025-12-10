@@ -15,6 +15,7 @@ type StorageBackend interface {
 
 	// Object operations
 	PutObject(ctx context.Context, bucketName, objectKey string, data io.Reader) error
+	CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error
 	GetObject(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error)
 	DeleteObject(ctx context.Context, bucketName, objectKey string) error
 	HeadObject(ctx context.Context, bucketName, objectKey string) (bool, error)

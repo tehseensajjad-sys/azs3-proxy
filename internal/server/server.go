@@ -14,6 +14,7 @@ import (
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/cache"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/handler"
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
 )
 
 // S3ProxyServer represents the HTTP server that proxies S3 API requests to Azure Blob Storage.
@@ -25,16 +26,19 @@ type S3ProxyServer struct {
 	backend      backend.StorageBackend // Storage backend implementation (Azure Blob Storage)
 	auth         *auth.AuthVerifier     // AWS SigV4 signature verifier
 	cacheManager *cache.CacheManager    // Optional cache manager for local object caching
+	telMgr       *telemetry.Manager     // Optional telemetry manager for metrics and logs
 }
 
 // NewS3ProxyServer creates and initializes a new S3 proxy server with the provided configuration.
 // It sets up the storage backend, authentication verifier, middleware, and routes.
+// Optionally accepts a telemetry manager for metrics collection.
 // Returns error if backend initialization fails.
-func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger) (*S3ProxyServer, error) {
+func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger, telMgr *telemetry.Manager) (*S3ProxyServer, error) {
 	s := &S3ProxyServer{
 		router: router,
 		config: cfg,
 		logger: logger,
+		telMgr: telMgr,
 	}
 
 	// Initialize the AWS SigV4 signature verifier with S3 credentials
@@ -124,9 +128,15 @@ func (s *S3ProxyServer) authMiddleware(next http.Handler) http.Handler {
 // registerRoutes registers all S3 API routes with their corresponding handler functions.
 // Routes are organized by HTTP method and path, with special handling for query parameters.
 // If caching is configured, initializes a cache manager and attaches it to the handler.
+// If telemetry is available, attaches it to the handler for metrics collection.
 func (s *S3ProxyServer) registerRoutes() {
 	// Create S3 API handler with backend and logger
 	s3Handler := handler.NewS3Handler(s.backend, s.logger)
+
+	// Attach telemetry manager if available
+	if s.telMgr != nil {
+		s3Handler.SetTelemetryManager(s.telMgr)
+	}
 
 	// Initialize cache manager if caching is enabled in configuration
 	if s.config.CacheEnabled {
@@ -144,6 +154,10 @@ func (s *S3ProxyServer) registerRoutes() {
 			s.cacheManager = cacheManager
 			// Attach cache manager to handler
 			s3Handler.SetCacheManager(cacheManager)
+			// Attach telemetry manager to cache manager if available
+			if s.telMgr != nil {
+				cacheManager.SetTelemetryManager(s.telMgr)
+			}
 			s.logger.Info("cache manager initialized",
 				zap.String("cache_path", s.config.CachePath),
 				zap.Int64("cache_max_size", s.config.CacheMaxSize),

@@ -151,6 +151,28 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 	return nil
 }
 
+func (ab *AzureBlobBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error {
+	// Naive implementation: Download from source and upload to destination.
+	// This avoids the complexity of SAS token generation for StartCopyFromURL
+	// when we don't have direct access to the account key here.
+	// TODO: Optimize using StartCopyFromURL if possible.
+
+	// 1. Get source object stream
+	srcResp, err := ab.GetObject(ctx, srcBucket, srcKey)
+	if err != nil {
+		return fmt.Errorf("failed to open source object for copy: %w", err)
+	}
+	defer srcResp.Close()
+
+	// 2. Put to destination
+	err = ab.PutObject(ctx, destBucket, destKey, srcResp)
+	if err != nil {
+		return fmt.Errorf("failed to upload destination object for copy: %w", err)
+	}
+
+	return nil
+}
+
 func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
 	resp, err := ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey).DownloadStream(ctx, nil)
 	if err != nil {

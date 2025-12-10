@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/backend"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/cache"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/models"
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
 )
 
 // S3Handler handles all S3 API requests and converts them to backend storage operations.
@@ -26,17 +28,19 @@ type S3Handler struct {
 	backend      backend.StorageBackend   // Storage backend implementation (Azure Blob Storage)
 	logger       *zap.Logger              // Logger for request and error logging
 	cacheManager *cache.CacheManager      // Optional cache manager for storing/retrieving objects locally
+	telMgr       *telemetry.Manager       // Optional telemetry manager for metrics export
 	stats        *models.S3OperationStats // Statistics for S3 operations
 }
 
 // NewS3Handler creates and returns a new S3 API handler instance.
 // It requires a storage backend implementation and logger for operation.
-// Optional cache manager can be provided for local caching support (pass nil to disable caching).
+// Optional cache manager and telemetry manager can be set later.
 func NewS3Handler(backend backend.StorageBackend, logger *zap.Logger) *S3Handler {
 	return &S3Handler{
 		backend:      backend,
 		logger:       logger,
 		cacheManager: nil,
+		telMgr:       nil,
 		stats:        &models.S3OperationStats{},
 	}
 }
@@ -45,6 +49,12 @@ func NewS3Handler(backend backend.StorageBackend, logger *zap.Logger) *S3Handler
 // This is called during server initialization if caching is configured.
 func (h *S3Handler) SetCacheManager(cm *cache.CacheManager) {
 	h.cacheManager = cm
+}
+
+// SetTelemetryManager sets the telemetry manager for the handler to enable metrics export.
+// This is called during server initialization if telemetry is configured.
+func (h *S3Handler) SetTelemetryManager(tm *telemetry.Manager) {
+	h.telMgr = tm
 }
 
 // GetStats returns a snapshot of S3 operation statistics.
@@ -98,6 +108,11 @@ func (h *S3Handler) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("failed to list buckets", zap.Error(err))
 		h.stats.RecordListBuckets(false)
 
+		// Record telemetry
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "ListBuckets", false, "")
+		}
+
 		s3Err := &models.S3Error{
 			Code:    models.InternalError,
 			Message: "Failed to list buckets",
@@ -108,6 +123,11 @@ func (h *S3Handler) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.stats.RecordListBuckets(true)
+
+	// Record telemetry
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "ListBuckets", true, "")
+	}
 
 	// Convert bucket names to S3 bucket list format
 	bucketList := make([]models.Bucket, len(buckets))
@@ -143,7 +163,10 @@ func (h *S3Handler) CreateBucketHandler(w http.ResponseWriter, r *http.Request) 
 	err := h.backend.CreateBucket(r.Context(), bucket)
 	if err != nil {
 		h.logger.Error("failed to create bucket", zap.Error(err), zap.String("bucket", bucket))
-
+		// Record telemetry
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "CreateBucket", false, "")
+		}
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -157,6 +180,10 @@ func (h *S3Handler) CreateBucketHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.WriteHeader(http.StatusOK)
+	// Record telemetry
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "CreateBucket", true, "")
+	}
 }
 
 // DeleteBucketHandler handles DELETE /{bucket} (S3 DeleteBucket operation).
@@ -184,6 +211,9 @@ func (h *S3Handler) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) 
 
 	h.stats.RecordDeleteBucket(true)
 	w.WriteHeader(http.StatusNoContent)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "DeleteBucket", true, "")
+	}
 }
 
 // ListObjectsV2Handler handles GET /{bucket}/?list-type=2
@@ -198,6 +228,9 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		h.logger.Error("failed to list objects", zap.Error(err), zap.String("bucket", bucket))
 		h.stats.RecordListObjectsV2(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "ListObjectsV2", false, "")
+		}
 
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
@@ -237,6 +270,9 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
 	h.stats.RecordListObjectsV2(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "ListObjectsV2", true, "")
+	}
 }
 
 // Object Operations
@@ -246,10 +282,13 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	bucket, key := extractBucketAndKey(r)
 	contentLength := r.ContentLength
+	copySource := r.Header.Get("x-amz-copy-source")
+
 	h.logger.Debug("PutObject request",
 		zap.String("bucket", bucket),
 		zap.String("key", key),
-		zap.Int64("content_length", contentLength))
+		zap.Int64("content_length", contentLength),
+		zap.String("copy_source", copySource))
 
 	// Ensure this is an object operation, not a bucket operation
 	if key == "" {
@@ -257,7 +296,36 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.backend.PutObject(r.Context(), bucket, key, r.Body)
+	var err error
+	if copySource != "" {
+		// Handle CopyObject
+		decodedSource, decodeErr := url.QueryUnescape(copySource)
+		if decodeErr != nil {
+			h.logger.Error("failed to decode copy source", zap.Error(decodeErr))
+			h.writeErrorResponse(w, &models.S3Error{
+				Code:    models.InvalidArgument,
+				Message: "Invalid copy source encoding",
+			})
+			return
+		}
+
+		// Format: /bucket/key or bucket/key
+		decodedSource = strings.TrimPrefix(decodedSource, "/")
+		parts := strings.SplitN(decodedSource, "/", 2)
+		if len(parts) != 2 {
+			h.writeErrorResponse(w, &models.S3Error{
+				Code:    models.InvalidArgument,
+				Message: "Invalid copy source format",
+			})
+			return
+		}
+		srcBucket, srcKey := parts[0], parts[1]
+
+		err = h.backend.CopyObject(r.Context(), srcBucket, srcKey, bucket, key)
+	} else {
+		err = h.backend.PutObject(r.Context(), bucket, key, r.Body)
+	}
+
 	if err != nil {
 		h.logger.Error("failed to put object",
 			zap.Error(err),
@@ -265,6 +333,12 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 			zap.String("key", key),
 			zap.Int64("content_length", contentLength))
 		h.stats.RecordPutObject(false)
+
+		// Record telemetry
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "PutObject", false, "")
+		}
+
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -293,8 +367,25 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		zap.Int64("content_length", contentLength))
 
 	h.stats.RecordPutObject(true)
-	w.Header().Set("ETag", "\"0\"")
-	w.WriteHeader(http.StatusOK)
+
+	// Record telemetry
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "PutObject", true, "")
+	}
+
+	if copySource != "" {
+		resp := models.CopyObjectResult{
+			LastModified: time.Now().UTC().Format(time.RFC3339),
+			ETag:         "\"0\"", // Placeholder ETag
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		xmlData, _ := xml.Marshal(resp)
+		w.Write(xmlData)
+	} else {
+		w.Header().Set("ETag", "\"0\"")
+		w.WriteHeader(http.StatusOK)
+	}
 }
 
 // GetObjectHandler handles GET /{bucket}/{key}
@@ -346,6 +437,9 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 			zap.String("bucket", bucket),
 			zap.String("key", key))
 		h.stats.RecordGetObject(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "GetObject", false, "")
+		}
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -410,6 +504,9 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write(objectData)
 	h.stats.RecordGetObject(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "GetObject", true, "")
+	}
 }
 
 // HeadObjectHandler handles HEAD /{bucket}/{key}
@@ -443,6 +540,9 @@ func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("failed to head object", zap.Error(err), zap.String("bucket", bucket), zap.String("key", key))
 		h.stats.RecordHeadObject(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "HeadObject", false, "")
+		}
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -456,6 +556,9 @@ func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !exists {
 		h.stats.RecordHeadObject(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "HeadObject", false, "NoSuchKey")
+		}
 		s3Err := &models.S3Error{
 			Code:     models.NoSuchKey,
 			Message:  "The specified key does not exist.",
@@ -468,6 +571,9 @@ func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", "\"0\"")
 	w.WriteHeader(http.StatusOK)
 	h.stats.RecordHeadObject(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "HeadObject", true, "")
+	}
 }
 
 // DeleteObjectHandler handles DELETE /{bucket}/{key}
@@ -485,6 +591,9 @@ func (h *S3Handler) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		h.logger.Error("failed to delete object", zap.Error(err), zap.String("bucket", bucket), zap.String("key", key))
 		h.stats.RecordDeleteObject(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "DeleteObject", false, "")
+		}
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -509,6 +618,9 @@ func (h *S3Handler) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) 
 	h.logger.Info("object deleted successfully", zap.String("bucket", bucket), zap.String("key", key))
 	h.stats.RecordDeleteObject(true)
 	w.WriteHeader(http.StatusNoContent)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "DeleteObject", true, "")
+	}
 }
 
 // PostObjectHandler handles POST /{bucket}/{key} (multipart upload)
@@ -556,6 +668,9 @@ func (h *S3Handler) InitiateMultipartUploadHandler(w http.ResponseWriter, r *htt
 	if err != nil {
 		h.logger.Error("failed to initiate multipart upload", zap.Error(err))
 		h.stats.RecordInitiateMultipart(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "InitiateMultipartUpload", false, "")
+		}
 		s3Err := &models.S3Error{
 			Code:    models.InternalError,
 			Message: err.Error(),
@@ -574,6 +689,9 @@ func (h *S3Handler) InitiateMultipartUploadHandler(w http.ResponseWriter, r *htt
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
 	h.stats.RecordInitiateMultipart(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "InitiateMultipartUpload", true, "")
+	}
 }
 
 // UploadPartHandler handles PUT /{bucket}/{key}?partNumber=X&uploadId=...
@@ -622,6 +740,9 @@ func (h *S3Handler) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("failed to upload part", zap.Error(err))
 		h.stats.RecordUploadPart(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "UploadPart", false, "")
+		}
 		s3Err := &models.S3Error{
 			Code:    models.InternalError,
 			Message: err.Error(),
@@ -633,6 +754,9 @@ func (h *S3Handler) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", etag)
 	w.WriteHeader(http.StatusOK)
 	h.stats.RecordUploadPart(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "UploadPart", true, "")
+	}
 }
 
 // CompleteMultipartUploadHandler handles POST /{bucket}/{key}?uploadId=...
@@ -682,6 +806,9 @@ func (h *S3Handler) CompleteMultipartUploadHandler(w http.ResponseWriter, r *htt
 	if err != nil {
 		h.logger.Error("failed to complete multipart upload", zap.Error(err))
 		h.stats.RecordCompleteMultipart(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "CompleteMultipartUpload", false, "")
+		}
 		s3Err := &models.S3Error{
 			Code:    models.InternalError,
 			Message: err.Error(),
@@ -700,6 +827,9 @@ func (h *S3Handler) CompleteMultipartUploadHandler(w http.ResponseWriter, r *htt
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
 	h.stats.RecordCompleteMultipart(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "CompleteMultipartUpload", true, "")
+	}
 }
 
 // AbortMultipartUploadHandler handles DELETE /{bucket}/{key}?uploadId=...
@@ -725,6 +855,9 @@ func (h *S3Handler) AbortMultipartUploadHandler(w http.ResponseWriter, r *http.R
 	if err != nil {
 		h.logger.Error("failed to abort multipart upload", zap.Error(err))
 		h.stats.RecordAbortMultipart(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "AbortMultipartUpload", false, "")
+		}
 		s3Err := &models.S3Error{
 			Code:    models.InternalError,
 			Message: err.Error(),
@@ -734,6 +867,9 @@ func (h *S3Handler) AbortMultipartUploadHandler(w http.ResponseWriter, r *http.R
 	}
 
 	h.stats.RecordAbortMultipart(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "AbortMultipartUpload", true, "")
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -760,6 +896,9 @@ func (h *S3Handler) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("failed to list parts", zap.Error(err))
 		h.stats.RecordListParts(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "ListParts", false, "")
+		}
 		s3Err := &models.S3Error{
 			Code:    models.InternalError,
 			Message: err.Error(),
@@ -793,6 +932,9 @@ func (h *S3Handler) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
 	h.stats.RecordListParts(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "ListParts", true, "")
+	}
 }
 
 // ListMultipartUploadsHandler handles GET /{bucket}?uploads
@@ -804,6 +946,9 @@ func (h *S3Handler) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.R
 	if err != nil {
 		h.logger.Error("failed to list multipart uploads", zap.Error(err))
 		h.stats.RecordListMultipartUploads(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "ListMultipartUploads", false, "")
+		}
 		s3Err := &models.S3Error{
 			Code:    models.InternalError,
 			Message: err.Error(),
@@ -835,6 +980,9 @@ func (h *S3Handler) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.R
 	}
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "ListMultipartUploads", true, "")
+	}
 }
 
 // EnableVersioningHandler enables versioning on a bucket
@@ -846,6 +994,9 @@ func (h *S3Handler) EnableVersioningHandler(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		h.logger.Error("failed to enable versioning", zap.String("bucket", bucket), zap.Error(err))
 		h.stats.RecordEnableVersioning(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "EnableVersioning", false, "")
+		}
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -865,6 +1016,9 @@ func (h *S3Handler) EnableVersioningHandler(w http.ResponseWriter, r *http.Reque
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
 	h.stats.RecordEnableVersioning(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "EnableVersioning", true, "")
+	}
 }
 
 // GetVersioningHandler gets the versioning status of a bucket
@@ -876,6 +1030,9 @@ func (h *S3Handler) GetVersioningHandler(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		h.logger.Error("failed to get versioning", zap.String("bucket", bucket), zap.Error(err))
 		h.stats.RecordGetVersioning(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "GetVersioning", false, "")
+		}
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -903,6 +1060,9 @@ func (h *S3Handler) GetVersioningHandler(w http.ResponseWriter, r *http.Request)
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
 	h.stats.RecordGetVersioning(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "GetVersioning", true, "")
+	}
 }
 
 // ListObjectVersionsHandler lists all versions of objects in a bucket
@@ -915,6 +1075,9 @@ func (h *S3Handler) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		h.logger.Error("failed to list object versions", zap.String("bucket", bucket), zap.Error(err))
 		h.stats.RecordListObjectVersions(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "ListObjectVersions", false, "")
+		}
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -952,6 +1115,9 @@ func (h *S3Handler) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Req
 	xmlData, _ := xml.Marshal(resp)
 	w.Write(xmlData)
 	h.stats.RecordListObjectVersions(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "ListObjectVersions", true, "")
+	}
 }
 
 // GetObjectVersionHandler retrieves a specific version of an object
@@ -965,6 +1131,9 @@ func (h *S3Handler) GetObjectVersionHandler(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		h.logger.Error("failed to get object version", zap.String("bucket", bucket), zap.String("key", key), zap.Error(err))
 		h.stats.RecordGetObjectVersion(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "GetObjectVersion", false, "")
+		}
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -984,6 +1153,9 @@ func (h *S3Handler) GetObjectVersionHandler(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusOK)
 	io.Copy(w, reader)
 	h.stats.RecordGetObjectVersion(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "GetObjectVersion", true, "")
+	}
 }
 
 // DeleteObjectVersionHandler deletes a specific version of an object
@@ -997,6 +1169,9 @@ func (h *S3Handler) DeleteObjectVersionHandler(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		h.logger.Error("failed to delete object version", zap.String("bucket", bucket), zap.String("key", key), zap.Error(err))
 		h.stats.RecordDeleteObjectVersion(false)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "DeleteObjectVersion", false, "")
+		}
 		errMsg := err.Error()
 		s3ErrCode := models.AzureErrorToS3(errMsg)
 		s3Err := &models.S3Error{
@@ -1009,5 +1184,8 @@ func (h *S3Handler) DeleteObjectVersionHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	h.stats.RecordDeleteObjectVersion(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "DeleteObjectVersion", true, "")
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
