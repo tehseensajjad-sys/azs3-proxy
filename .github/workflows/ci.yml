@@ -58,7 +58,9 @@ jobs:
       - name: Run Integration Tests
         env:
           AZURE_STORAGE_CONNECTION_STRING: "UseDevelopmentStorage=true"
-        run: go test -v -race ./test/integration/...
+        run: |
+          go test -v -race ./test/integration/...
+          go test -v -race ./test/compliance/...
 
   docker-build:
     name: Docker Build
