@@ -332,3 +332,26 @@ func TestServerIntegration_FullSetup(t *testing.T) {
 		t.Errorf("Failed to close server: %v", err)
 	}
 }
+
+func TestNewS3ProxyServer_InvalidAuth(t *testing.T) {
+	// Invalid auth mode
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AzureAuthMode("invalid"),
+		StorageAccountName: "testaccount",
+	}
+
+	cfg := &config.Config{
+		ListenAddr:        ":8080",
+		AzureAuth:         azureAuth,
+		S3AccessKeyID:     "test",
+		S3SecretAccessKey: "test",
+	}
+
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+
+	_, err := NewS3ProxyServer(router, cfg, logger, nil)
+	if err == nil {
+		t.Error("Expected error for invalid auth mode")
+	}
+}
