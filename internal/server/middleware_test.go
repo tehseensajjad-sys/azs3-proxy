@@ -31,7 +31,7 @@ func TestAuthMiddleware(t *testing.T) {
 	// Define a protected handler
 	protectedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	})
 
 	// Apply middleware

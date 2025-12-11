@@ -53,7 +53,7 @@ func TestNewAzureBlobBackendWithAuth(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -74,7 +74,7 @@ func TestAzureBlobBackendOperations(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger)
 	if err != nil {
@@ -107,7 +107,7 @@ func TestAzureBlobBackendContextHandling(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger)
 	if err != nil {
@@ -138,7 +138,7 @@ func TestMultipartUploadFlow(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger)
 	if err != nil {

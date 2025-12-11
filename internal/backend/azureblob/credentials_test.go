@@ -17,7 +17,7 @@ func TestNewCredentialProviderAccountKey(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	provider, err := NewCredentialProvider(authConfig, logger)
 	if err != nil {
@@ -36,7 +36,7 @@ func TestNewCredentialProviderSAS(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	provider, err := NewCredentialProvider(authConfig, logger)
 	if err != nil {
@@ -54,7 +54,7 @@ func TestNewCredentialProviderMSI(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	provider, err := NewCredentialProvider(authConfig, logger)
 	if err != nil {
@@ -65,7 +65,7 @@ func TestNewCredentialProviderMSI(t *testing.T) {
 	}
 }
 
-func TestNewCredentialProviderServicePrincipal(t *testing.T) {
+func TestNewCredentialProviderSPN(t *testing.T) {
 	authConfig := &config.AzureAuthConfig{
 		Mode:               config.AuthModeSPN,
 		StorageAccountName: "testaccount",
@@ -75,7 +75,7 @@ func TestNewCredentialProviderServicePrincipal(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	provider, err := NewCredentialProvider(authConfig, logger)
 	if err != nil {
@@ -89,7 +89,7 @@ func TestNewCredentialProviderServicePrincipal(t *testing.T) {
 func TestNewCredentialProviderFederatedToken(t *testing.T) {
 	tokenContent := "test-token-content"
 	tmpFile := createTempFile(t, tokenContent)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	authConfig := &config.AzureAuthConfig{
 		Mode:               config.AuthModeFederatedToken,
@@ -100,7 +100,7 @@ func TestNewCredentialProviderFederatedToken(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	provider, err := NewCredentialProvider(authConfig, logger)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestNewCredentialProviderAzCLI(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	provider, err := NewCredentialProvider(authConfig, logger)
 	if err != nil {
@@ -137,7 +137,7 @@ func TestBuildClientFromCredentialAccountKey(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	ctx := context.Background()
 	provider, err := NewCredentialProvider(authConfig, logger)
@@ -158,7 +158,7 @@ func TestBuildClientFromCredentialSAS(t *testing.T) {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	ctx := context.Background()
 	provider, err := NewCredentialProvider(authConfig, logger)
@@ -177,7 +177,7 @@ func createTempFile(t *testing.T, content string) string {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer tmpFile.Close()
+	defer func() { _ = tmpFile.Close() }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("Failed to write to temp file: %v", err)

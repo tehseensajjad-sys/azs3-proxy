@@ -139,7 +139,7 @@ func NewAzCLICredential() *AzCLICredential {
 
 func (c *AzCLICredential) GetCredential(ctx context.Context) (azcore.TokenCredential, error) {
 	// Will use azure-identity AzureCLICredential
-	return nil, fmt.Errorf("Azure CLI credential requires azure-identity SDK")
+	return nil, fmt.Errorf("azure CLI credential requires azure-identity SDK")
 }
 
 func (c *AzCLICredential) String() string {

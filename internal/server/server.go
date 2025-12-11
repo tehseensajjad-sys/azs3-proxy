@@ -112,7 +112,7 @@ func (s *S3ProxyServer) authMiddleware(next http.Handler) http.Handler {
 			// Return S3-formatted error response
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>The request signature we calculated does not match the signature you provided.</Message></Error>`))
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>The request signature we calculated does not match the signature you provided.</Message></Error>`))
 			return
 		}
 
@@ -168,7 +168,7 @@ func (s *S3ProxyServer) registerRoutes() {
 	// Health check endpoint (no authentication required)
 	s.router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	// List all buckets

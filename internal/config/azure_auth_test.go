@@ -7,10 +7,10 @@ import (
 
 func TestAzureAuthConfigAccountKey(t *testing.T) {
 	// Set up environment
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
-	os.Setenv("AZURE_STORAGE_KEY", "dGVzdGtleQ==")
-	defer os.Unsetenv("AZURE_STORAGE_ACCOUNT")
-	defer os.Unsetenv("AZURE_STORAGE_KEY")
+	_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+	_ = os.Setenv("AZURE_STORAGE_KEY", "dGVzdGtleQ==")
+	defer func() { _ = os.Unsetenv("AZURE_STORAGE_ACCOUNT") }()
+	defer func() { _ = os.Unsetenv("AZURE_STORAGE_KEY") }()
 
 	cfg, err := LoadAzureAuthConfig()
 	if err != nil {
@@ -31,12 +31,12 @@ func TestAzureAuthConfigAccountKey(t *testing.T) {
 }
 
 func TestAzureAuthConfigSAS(t *testing.T) {
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
-	os.Setenv("AZURE_STORAGE_SAS_TOKEN", "sv=2021-06-08&st=2023-01-01&se=2024-01-01&sr=c&sp=racwd")
-	defer os.Unsetenv("AZURE_STORAGE_ACCOUNT")
-	defer os.Unsetenv("AZURE_STORAGE_SAS_TOKEN")
+	_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+	_ = os.Setenv("AZURE_STORAGE_SAS_TOKEN", "sv=2021-06-08&st=2023-01-01&se=2024-01-01&sr=c&sp=racwd")
+	defer func() { _ = os.Unsetenv("AZURE_STORAGE_ACCOUNT") }()
+	defer func() { _ = os.Unsetenv("AZURE_STORAGE_SAS_TOKEN") }()
 	// Unset account key if set from previous test
-	os.Unsetenv("AZURE_STORAGE_KEY")
+	_ = os.Unsetenv("AZURE_STORAGE_KEY")
 
 	cfg, err := LoadAzureAuthConfig()
 	if err != nil {
@@ -53,17 +53,17 @@ func TestAzureAuthConfigSAS(t *testing.T) {
 }
 
 func TestAzureAuthConfigServicePrincipal(t *testing.T) {
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
-	os.Setenv("AZURE_TENANT_ID", "00000000-0000-0000-0000-000000000000")
-	os.Setenv("AZURE_CLIENT_ID", "00000000-0000-0000-0000-000000000001")
-	os.Setenv("AZURE_CLIENT_SECRET", "test-secret")
-	defer os.Unsetenv("AZURE_STORAGE_ACCOUNT")
-	defer os.Unsetenv("AZURE_TENANT_ID")
-	defer os.Unsetenv("AZURE_CLIENT_ID")
-	defer os.Unsetenv("AZURE_CLIENT_SECRET")
+	_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+	_ = os.Setenv("AZURE_TENANT_ID", "00000000-0000-0000-0000-000000000000")
+	_ = os.Setenv("AZURE_CLIENT_ID", "00000000-0000-0000-0000-000000000001")
+	_ = os.Setenv("AZURE_CLIENT_SECRET", "test-secret")
+	defer func() { _ = os.Unsetenv("AZURE_STORAGE_ACCOUNT") }()
+	defer func() { _ = os.Unsetenv("AZURE_TENANT_ID") }()
+	defer func() { _ = os.Unsetenv("AZURE_CLIENT_ID") }()
+	defer func() { _ = os.Unsetenv("AZURE_CLIENT_SECRET") }()
 	// Unset other auth methods
-	os.Unsetenv("AZURE_STORAGE_KEY")
-	os.Unsetenv("AZURE_STORAGE_SAS_TOKEN")
+	_ = os.Unsetenv("AZURE_STORAGE_KEY")
+	_ = os.Unsetenv("AZURE_STORAGE_SAS_TOKEN")
 
 	cfg, err := LoadAzureAuthConfig()
 	if err != nil {
@@ -84,16 +84,16 @@ func TestAzureAuthConfigServicePrincipal(t *testing.T) {
 }
 
 func TestAzureAuthConfigMSI(t *testing.T) {
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
-	os.Setenv("AZURE_USE_MSI", "true")
-	defer os.Unsetenv("AZURE_STORAGE_ACCOUNT")
-	defer os.Unsetenv("AZURE_USE_MSI")
+	_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+	_ = os.Setenv("AZURE_USE_MSI", "true")
+	defer func() { _ = os.Unsetenv("AZURE_STORAGE_ACCOUNT") }()
+	defer func() { _ = os.Unsetenv("AZURE_USE_MSI") }()
 	// Unset other auth methods
-	os.Unsetenv("AZURE_STORAGE_KEY")
-	os.Unsetenv("AZURE_STORAGE_SAS_TOKEN")
-	os.Unsetenv("AZURE_CLIENT_ID")
-	os.Unsetenv("AZURE_CLIENT_SECRET")
-	os.Unsetenv("AZURE_TENANT_ID")
+	_ = os.Unsetenv("AZURE_STORAGE_KEY")
+	_ = os.Unsetenv("AZURE_STORAGE_SAS_TOKEN")
+	_ = os.Unsetenv("AZURE_CLIENT_ID")
+	_ = os.Unsetenv("AZURE_CLIENT_SECRET")
+	_ = os.Unsetenv("AZURE_TENANT_ID")
 
 	cfg, err := LoadAzureAuthConfig()
 	if err != nil {
@@ -117,12 +117,12 @@ func TestAzureAuthConfigValidation(t *testing.T) {
 			name: "account_key_valid",
 			mode: AuthModeAccountKey,
 			setupFn: func() {
-				os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
-				os.Setenv("AZURE_STORAGE_KEY", "dGVzdGtleQ==")
+				_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+				_ = os.Setenv("AZURE_STORAGE_KEY", "dGVzdGtleQ==")
 			},
 			cleanupFn: func() {
-				os.Unsetenv("AZURE_STORAGE_ACCOUNT")
-				os.Unsetenv("AZURE_STORAGE_KEY")
+				_ = os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+				_ = os.Unsetenv("AZURE_STORAGE_KEY")
 			},
 			shouldFail: false,
 		},
@@ -130,11 +130,11 @@ func TestAzureAuthConfigValidation(t *testing.T) {
 			name: "account_key_missing",
 			mode: AuthModeAccountKey,
 			setupFn: func() {
-				os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
-				os.Unsetenv("AZURE_STORAGE_KEY")
+				_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+				_ = os.Unsetenv("AZURE_STORAGE_KEY")
 			},
 			cleanupFn: func() {
-				os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+				_ = os.Unsetenv("AZURE_STORAGE_ACCOUNT")
 			},
 			shouldFail: true,
 		},

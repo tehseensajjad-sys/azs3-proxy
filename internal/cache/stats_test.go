@@ -140,7 +140,7 @@ func TestLRUCache_GetStats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create cache: %v", err)
 	}
-	defer cache.Close()
+	defer func() { _ = cache.Close() }()
 
 	// Create a test file to cache
 	testFile := tempDir + "/test-source.txt"
@@ -161,10 +161,7 @@ func TestLRUCache_GetStats(t *testing.T) {
 	}
 
 	// Try to retrieve non-existent key (miss)
-	_, err = cache.Get("non-existent-key")
-	if err != nil {
-		// Expected: key not found
-	}
+	_, _ = cache.Get("non-existent-key")
 
 	// Get stats
 	stats := cache.GetStats()
@@ -190,7 +187,7 @@ func TestCacheManager_GetStats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create cache manager: %v", err)
 	}
-	defer manager.Close()
+	defer func() { _ = manager.Close() }()
 
 	// Cache an object
 	testData := []byte("test object data")

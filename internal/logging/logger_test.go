@@ -23,8 +23,8 @@ func TestNewLogger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_ = tmpFile.Close()
 
 	logger, err = NewLogger(tmpFile.Name(), "debug", "file")
 	if err != nil {

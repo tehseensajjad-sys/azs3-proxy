@@ -83,7 +83,7 @@ func (h *S3Handler) writeErrorResponse(w http.ResponseWriter, err *models.S3Erro
 	}
 
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 }
 
 // extractBucketAndKey extracts the bucket name and object key from the request URL.
@@ -150,7 +150,7 @@ func (h *S3Handler) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 }
 
 // CreateBucketHandler handles PUT /{bucket} (S3 CreateBucket operation).
@@ -268,7 +268,7 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 	h.stats.RecordListObjectsV2(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "ListObjectsV2", true, "")
@@ -381,7 +381,7 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
 		xmlData, _ := xml.Marshal(resp)
-		w.Write(xmlData)
+		_, _ = w.Write(xmlData)
 	} else {
 		w.Header().Set("ETag", "\"0\"")
 		w.WriteHeader(http.StatusOK)
@@ -419,7 +419,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("ETag", "\"0\"")
 				w.Header().Set("X-Cache-Hit", "true")
 				w.WriteHeader(http.StatusOK)
-				w.Write(data)
+				_, _ = w.Write(data)
 				return
 			}
 			// If we can't read the cached file, fall through to fetch from backend
@@ -450,7 +450,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		h.writeErrorResponse(w, s3Err)
 		return
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	h.logger.Info("object downloaded successfully",
 		zap.String("bucket", bucket),
@@ -502,7 +502,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("ETag", "\"0\"")
 	w.WriteHeader(http.StatusOK)
-	w.Write(objectData)
+	_, _ = w.Write(objectData)
 	h.stats.RecordGetObject(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "GetObject", true, "")
@@ -687,7 +687,7 @@ func (h *S3Handler) InitiateMultipartUploadHandler(w http.ResponseWriter, r *htt
 		UploadID: uploadID,
 	}
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 	h.stats.RecordInitiateMultipart(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "InitiateMultipartUpload", true, "")
@@ -825,7 +825,7 @@ func (h *S3Handler) CompleteMultipartUploadHandler(w http.ResponseWriter, r *htt
 		ETag:   etag,
 	}
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 	h.stats.RecordCompleteMultipart(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "CompleteMultipartUpload", true, "")
@@ -930,7 +930,7 @@ func (h *S3Handler) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
 		Parts:        partList,
 	}
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 	h.stats.RecordListParts(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "ListParts", true, "")
@@ -979,7 +979,7 @@ func (h *S3Handler) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.R
 		Uploads:     uploadList,
 	}
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "ListMultipartUploads", true, "")
 	}
@@ -1014,7 +1014,7 @@ func (h *S3Handler) EnableVersioningHandler(w http.ResponseWriter, r *http.Reque
 		Status: "Enabled",
 	}
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 	h.stats.RecordEnableVersioning(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "EnableVersioning", true, "")
@@ -1058,7 +1058,7 @@ func (h *S3Handler) GetVersioningHandler(w http.ResponseWriter, r *http.Request)
 		Status: status,
 	}
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 	h.stats.RecordGetVersioning(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "GetVersioning", true, "")
@@ -1113,7 +1113,7 @@ func (h *S3Handler) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Req
 		Versions:    versionList,
 	}
 	xmlData, _ := xml.Marshal(resp)
-	w.Write(xmlData)
+	_, _ = w.Write(xmlData)
 	h.stats.RecordListObjectVersions(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "ListObjectVersions", true, "")
@@ -1144,14 +1144,14 @@ func (h *S3Handler) GetObjectVersionHandler(w http.ResponseWriter, r *http.Reque
 		h.writeErrorResponse(w, s3Err)
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	if versionID != "" {
 		w.Header().Set("x-amz-version-id", versionID)
 	}
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, reader)
+	_, _ = io.Copy(w, reader)
 	h.stats.RecordGetObjectVersion(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "GetObjectVersion", true, "")

@@ -116,8 +116,8 @@ func (ab *AzureBlobBackend) ListBuckets(ctx context.Context) ([]string, error) {
 		}
 
 		// Extract container names from the response
-		if resp.ListContainersSegmentResponse.ContainerItems != nil {
-			for _, c := range resp.ListContainersSegmentResponse.ContainerItems {
+		if resp.ContainerItems != nil {
+			for _, c := range resp.ContainerItems {
 				if c.Name != nil {
 					buckets = append(buckets, *c.Name)
 				}
@@ -162,7 +162,7 @@ func (ab *AzureBlobBackend) CopyObject(ctx context.Context, srcBucket, srcKey, d
 	if err != nil {
 		return fmt.Errorf("failed to open source object for copy: %w", err)
 	}
-	defer srcResp.Close()
+	defer func() { _ = srcResp.Close() }()
 
 	// 2. Put to destination
 	err = ab.PutObject(ctx, destBucket, destKey, srcResp)

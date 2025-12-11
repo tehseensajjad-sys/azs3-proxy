@@ -7,13 +7,13 @@ import (
 
 func TestNewCacheManager(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	// defer os.RemoveAll(tmpDir) - t.TempDir handles cleanup
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	if cm == nil {
 		t.Fatal("expected non-nil cache manager")
@@ -22,13 +22,12 @@ func TestNewCacheManager(t *testing.T) {
 
 func TestCacheObject(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	testData := []byte("test data for caching")
 	cacheKey := "test-bucket/test-key"
@@ -50,13 +49,12 @@ func TestCacheObject(t *testing.T) {
 
 func TestGetObjectFromCache(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	testData := []byte("cached object data")
 	cacheKey := "bucket1/object1"
@@ -88,13 +86,13 @@ func TestGetObjectFromCache(t *testing.T) {
 
 func TestReadCachedObject(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	testData := []byte("test object content")
 	cacheKey := "bucket2/object2"
@@ -118,13 +116,13 @@ func TestReadCachedObject(t *testing.T) {
 
 func TestInvalidateObject(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	testData := []byte("data to invalidate")
 	cacheKey := "bucket3/object3"
@@ -156,13 +154,13 @@ func TestInvalidateObject(t *testing.T) {
 
 func TestInvalidateAll(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	// Cache multiple objects
 	for i := 1; i <= 3; i++ {
@@ -180,7 +178,7 @@ func TestInvalidateAll(t *testing.T) {
 	}
 
 	// Invalidate all
-	cm.InvalidateAll()
+	_ = cm.InvalidateAll()
 
 	// Verify all are gone
 	finalCount := cm.CacheCount()
@@ -191,13 +189,13 @@ func TestInvalidateAll(t *testing.T) {
 
 func TestCacheSize(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	testData := []byte("test data with known size")
 	cacheKey := "bucket/key"
@@ -217,13 +215,13 @@ func TestCacheSize(t *testing.T) {
 
 func TestCacheCount(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	if cm.CacheCount() != 0 {
 		t.Errorf("expected initial count of 0, got %d", cm.CacheCount())
@@ -246,7 +244,7 @@ func TestCacheCount(t *testing.T) {
 
 func TestCacheManagerClose(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
@@ -254,21 +252,21 @@ func TestCacheManagerClose(t *testing.T) {
 	}
 
 	// Close should not panic
-	cm.Close()
+	_ = cm.Close()
 
 	// Close again should not panic
-	cm.Close()
+	_ = cm.Close()
 }
 
 func TestGetStats(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	stats := cm.GetStats()
 	// Stats should be a valid Statistics struct - at least TotalRequests should exist
@@ -280,13 +278,13 @@ func TestGetStats(t *testing.T) {
 // TestCacheObjectWithLargeData tests caching with larger data
 func TestCacheObjectWithLargeData(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 100*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	// Create 1MB of test data
 	largeData := make([]byte, 1024*1024)
@@ -318,13 +316,13 @@ func TestCacheObjectWithLargeData(t *testing.T) {
 // TestCacheObjectWithSpecialChars tests caching with special character keys
 func TestCacheObjectWithSpecialChars(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	testCases := []struct {
 		name     string
@@ -377,13 +375,13 @@ func TestCacheObjectWithSpecialChars(t *testing.T) {
 // TestCacheManagerConcurrentAccess tests concurrent cache operations
 func TestCacheManagerConcurrentAccess(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 50*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	done := make(chan bool, 10)
 
@@ -415,13 +413,13 @@ func TestCacheManagerConcurrentAccess(t *testing.T) {
 // TestReadCachedObjectNonExistent tests reading non-existent cached object
 func TestReadCachedObjectNonExistent(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	_, err = cm.ReadCachedObject("nonexistent/key")
 	if err == nil {
@@ -432,15 +430,15 @@ func TestReadCachedObjectNonExistent(t *testing.T) {
 // TestGetObjectFromCacheNonExistent tests getting non-existent cached object
 func TestGetObjectFromCacheNonExistent(t *testing.T) {
 	tmpDir := t.TempDir()
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cm, err := NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
-	filePath, err := cm.GetObjectFromCache("nonexistent/key")
+	filePath, _ := cm.GetObjectFromCache("nonexistent/key")
 	// Should return empty string without error for non-existent key
 	if filePath != "" {
 		t.Errorf("expected empty file path, got %s", filePath)

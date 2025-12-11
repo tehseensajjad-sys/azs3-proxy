@@ -259,11 +259,12 @@ func TestS3OperationStats_Concurrent(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			for j := 0; j < 100; j++ {
-				if j%3 == 0 {
+				switch j % 3 {
+				case 0:
 					stats.RecordListBuckets(true)
-				} else if j%3 == 1 {
+				case 1:
 					stats.RecordListBuckets(false)
-				} else {
+				default:
 					stats.RecordGetObject(true)
 				}
 			}

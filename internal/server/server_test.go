@@ -28,7 +28,7 @@ func TestNewS3ProxyServer(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// This should work with valid config
 	server, err := NewS3ProxyServer(router, cfg, logger, nil)
@@ -59,7 +59,7 @@ func TestNewS3ProxyServerWithSASAuth(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
@@ -88,7 +88,7 @@ func TestNewS3ProxyServerWithMSIAuth(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// MSI auth might fail in non-Azure environment, but should not panic
 	_, _ = NewS3ProxyServer(router, cfg, logger, nil)
@@ -118,7 +118,7 @@ func TestNewS3ProxyServerWithServicePrincipalAuth(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestS3ProxyServerMiddleware(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
@@ -185,7 +185,7 @@ func TestS3ProxyServerRouting(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
@@ -222,7 +222,7 @@ func TestServerClose(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
@@ -254,7 +254,7 @@ func TestServerAuthMiddlewareWithValidSignature(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
@@ -284,7 +284,7 @@ func TestServerAuthMiddlewareWithMissingAuth(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {
@@ -314,7 +314,7 @@ func TestServerIntegration_FullSetup(t *testing.T) {
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	server, err := NewS3ProxyServer(router, cfg, logger, nil)
 	if err != nil {

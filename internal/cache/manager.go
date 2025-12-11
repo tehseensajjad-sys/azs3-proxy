@@ -70,14 +70,14 @@ func (cm *CacheManager) CacheObject(key string, data []byte) error {
 		return fmt.Errorf("failed to create temporary file: %w", err)
 	}
 	tempPath := tempFile.Name()
-	defer os.Remove(tempPath) // Clean up temp file after caching
+	defer func() { _ = os.Remove(tempPath) }() // Clean up temp file after caching
 
 	// Write all data to temporary file
 	if _, err := tempFile.Write(data); err != nil {
-		tempFile.Close()
+		_ = tempFile.Close()
 		return fmt.Errorf("failed to write to temporary file: %w", err)
 	}
-	tempFile.Close()
+	_ = tempFile.Close()
 
 	// Move temporary file into cache
 	if err := cm.cache.Put(key, tempPath, int64(len(data))); err != nil {

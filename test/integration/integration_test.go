@@ -45,7 +45,7 @@ func TestIntegration(t *testing.T) {
 		t.Fatalf("Failed to listen on random port: %v", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close() // Close it, we just wanted the port. The server will listen on it.
+	_ = listener.Close() // Close it, we just wanted the port. The server will listen on it.
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", port)
 
@@ -95,7 +95,7 @@ func TestIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create proxy server: %v", err)
 	}
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	// Start Server in Goroutine
 	httpServer := &http.Server{
@@ -108,7 +108,7 @@ func TestIntegration(t *testing.T) {
 			t.Errorf("Server failed: %v", err)
 		}
 	}()
-	defer httpServer.Shutdown(ctx)
+	defer func() { _ = httpServer.Shutdown(ctx) }()
 
 	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
@@ -169,7 +169,7 @@ func TestIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetObject failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -225,20 +225,13 @@ func createS3Client(ctx context.Context, endpoint, accessKey, secretKey string) 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion("us-east-1"),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-		awsconfig.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				return aws.Endpoint{
-					URL:           "http://" + endpoint,
-					SigningRegion: "us-east-1",
-				}, nil
-			},
-		)),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String("http://" + endpoint)
 		o.UsePathStyle = true // Required for local testing/proxies usually
 	}), nil
 }

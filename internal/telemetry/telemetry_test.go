@@ -28,16 +28,16 @@ func TestLoadTelemetryConfig(t *testing.T) {
 }
 
 func TestLoadTelemetryConfigWithEnv(t *testing.T) {
-	os.Setenv("SERVICE_NAME", "test-service")
-	os.Setenv("SERVICE_VERSION", "2.0.0")
-	os.Setenv("TELEMETRY_EXPORT_INTERVAL", "60s")
-	os.Setenv("AZURE_MONITOR_ENABLED", "true")
-	os.Setenv("AZURE_MONITOR_CONNECTION_STRING", "InstrumentationKey=test")
-	defer os.Unsetenv("SERVICE_NAME")
-	defer os.Unsetenv("SERVICE_VERSION")
-	defer os.Unsetenv("TELEMETRY_EXPORT_INTERVAL")
-	defer os.Unsetenv("AZURE_MONITOR_ENABLED")
-	defer os.Unsetenv("AZURE_MONITOR_CONNECTION_STRING")
+	_ = os.Setenv("SERVICE_NAME", "test-service")
+	_ = os.Setenv("SERVICE_VERSION", "2.0.0")
+	_ = os.Setenv("TELEMETRY_EXPORT_INTERVAL", "60s")
+	_ = os.Setenv("AZURE_MONITOR_ENABLED", "true")
+	_ = os.Setenv("AZURE_MONITOR_CONNECTION_STRING", "InstrumentationKey=test")
+	defer func() { _ = os.Unsetenv("SERVICE_NAME") }()
+	defer func() { _ = os.Unsetenv("SERVICE_VERSION") }()
+	defer func() { _ = os.Unsetenv("TELEMETRY_EXPORT_INTERVAL") }()
+	defer func() { _ = os.Unsetenv("AZURE_MONITOR_ENABLED") }()
+	defer func() { _ = os.Unsetenv("AZURE_MONITOR_CONNECTION_STRING") }()
 
 	cfg := LoadTelemetryConfig()
 
@@ -202,8 +202,8 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestNewManagerWithEnabledTelemetry(t *testing.T) {
-	os.Setenv("TELEMETRY_METRICS_ENABLED", "true")
-	defer os.Unsetenv("TELEMETRY_METRICS_ENABLED")
+	_ = os.Setenv("TELEMETRY_METRICS_ENABLED", "true")
+	defer func() { _ = os.Unsetenv("TELEMETRY_METRICS_ENABLED") }()
 
 	ctx := context.Background()
 	mgr, err := NewManager(ctx)
@@ -279,8 +279,8 @@ func TestRecordCacheMetrics(t *testing.T) {
 }
 
 func TestRecordMetricsWhenDisabled(t *testing.T) {
-	os.Setenv("TELEMETRY_ENABLED", "false")
-	defer os.Unsetenv("TELEMETRY_ENABLED")
+	_ = os.Setenv("TELEMETRY_ENABLED", "false")
+	defer func() { _ = os.Unsetenv("TELEMETRY_ENABLED") }()
 
 	ctx := context.Background()
 

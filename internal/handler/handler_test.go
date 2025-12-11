@@ -188,7 +188,7 @@ func (m *MockBackend) DeleteObjectVersion(ctx context.Context, bucketName, objec
 func TestS3HandlerCreation(t *testing.T) {
 	mockBackend := &MockBackend{}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 	if handler == nil {
 		t.Error("Expected non-nil handler")
@@ -221,7 +221,7 @@ func TestListBucketsHandler(t *testing.T) {
 				},
 			}
 			logger, _ := zap.NewDevelopment()
-			defer logger.Sync()
+			defer func() { _ = logger.Sync() }()
 			handler := NewS3Handler(mockBackend, logger)
 
 			r := chi.NewRouter()
@@ -264,7 +264,7 @@ func TestCreateBucketHandler(t *testing.T) {
 				},
 			}
 			logger, _ := zap.NewDevelopment()
-			defer logger.Sync()
+			defer func() { _ = logger.Sync() }()
 			handler := NewS3Handler(mockBackend, logger)
 
 			r := chi.NewRouter()
@@ -307,7 +307,7 @@ func TestDeleteBucketHandler(t *testing.T) {
 				},
 			}
 			logger, _ := zap.NewDevelopment()
-			defer logger.Sync()
+			defer func() { _ = logger.Sync() }()
 			handler := NewS3Handler(mockBackend, logger)
 
 			r := chi.NewRouter()
@@ -331,7 +331,7 @@ func TestListObjectsV2Handler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -353,7 +353,7 @@ func TestPutObjectHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -376,7 +376,7 @@ func TestGetObjectHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -398,7 +398,7 @@ func TestHeadObjectHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -420,7 +420,7 @@ func TestDeleteObjectHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -442,7 +442,7 @@ func TestInitiateMultipartUploadHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -488,7 +488,7 @@ func TestUploadPartHandler(t *testing.T) {
 				},
 			}
 			logger, _ := zap.NewDevelopment()
-			defer logger.Sync()
+			defer func() { _ = logger.Sync() }()
 			handler := NewS3Handler(mockBackend, logger)
 
 			r := chi.NewRouter()
@@ -524,7 +524,7 @@ func TestCompleteMultipartUploadHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -555,7 +555,7 @@ func TestCompleteMultipartUploadHandler(t *testing.T) {
 func TestCompleteMultipartUploadHandler_MissingUploadID(t *testing.T) {
 	mockBackend := &MockBackend{}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -585,7 +585,7 @@ func TestAbortMultipartUploadHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -603,7 +603,7 @@ func TestAbortMultipartUploadHandler(t *testing.T) {
 func TestAbortMultipartUploadHandler_MissingUploadID(t *testing.T) {
 	mockBackend := &MockBackend{}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -636,7 +636,7 @@ func TestListPartsHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -669,7 +669,7 @@ func TestListMultipartUploadsHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -721,7 +721,7 @@ func TestEnableVersioningHandler(t *testing.T) {
 				EnableVersioningFunc: test.enableVersioningFunc,
 			}
 			logger, _ := zap.NewDevelopment()
-			defer logger.Sync()
+			defer func() { _ = logger.Sync() }()
 			handler := NewS3Handler(mockBackend, logger)
 
 			r := chi.NewRouter()
@@ -778,7 +778,7 @@ func TestGetVersioningHandler(t *testing.T) {
 				GetVersioningFunc: test.getVersioningFunc,
 			}
 			logger, _ := zap.NewDevelopment()
-			defer logger.Sync()
+			defer func() { _ = logger.Sync() }()
 			handler := NewS3Handler(mockBackend, logger)
 
 			r := chi.NewRouter()
@@ -803,7 +803,7 @@ func TestListObjectVersionsHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -826,7 +826,7 @@ func TestGetObjectVersionHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -875,7 +875,7 @@ func TestDeleteObjectVersionHandler(t *testing.T) {
 				DeleteObjectVersionFunc: test.deleteFunc,
 			}
 			logger, _ := zap.NewDevelopment()
-			defer logger.Sync()
+			defer func() { _ = logger.Sync() }()
 			handler := NewS3Handler(mockBackend, logger)
 
 			r := chi.NewRouter()
@@ -900,7 +900,7 @@ func TestEnableVersioningHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -924,7 +924,7 @@ func TestGetVersioningHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -947,7 +947,7 @@ func TestListObjectVersionsHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -970,7 +970,7 @@ func TestGetObjectVersionHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -993,7 +993,7 @@ func TestListPartsHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1016,7 +1016,7 @@ func TestListMultipartUploadsHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1039,7 +1039,7 @@ func TestListBucketsHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1062,7 +1062,7 @@ func TestCreateBucketHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1085,7 +1085,7 @@ func TestDeleteBucketHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1108,7 +1108,7 @@ func TestGetObjectHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1131,7 +1131,7 @@ func TestPutObjectHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1155,7 +1155,7 @@ func TestDeleteObjectHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1178,7 +1178,7 @@ func TestHeadObjectHandler_NotFound(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1201,7 +1201,7 @@ func TestListObjectsV2Handler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1224,7 +1224,7 @@ func TestInitiateMultipartUploadHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1247,7 +1247,7 @@ func TestUploadPartHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1271,7 +1271,7 @@ func TestCompleteMultipartUploadHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1295,7 +1295,7 @@ func TestAbortMultipartUploadHandler_Error(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1318,7 +1318,7 @@ func TestS3HandlerStatsIntegration(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	// Verify stats are initialized
@@ -1353,7 +1353,7 @@ func TestPostObjectHandler(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1378,7 +1378,7 @@ func TestDeleteObjectHandler_Success(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1401,7 +1401,7 @@ func TestHeadObjectHandler_Success(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1424,7 +1424,7 @@ func TestGetObjectHandler_Success(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1451,7 +1451,7 @@ func TestPutObjectHandler_Success(t *testing.T) {
 		},
 	}
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	handler := NewS3Handler(mockBackend, logger)
 
 	r := chi.NewRouter()
@@ -1479,7 +1479,7 @@ func TestSetCacheManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	handler.SetCacheManager(cm)
 	if handler.cacheManager != cm {
@@ -1512,13 +1512,13 @@ func TestGenerateCacheKey(t *testing.T) {
 // TestGetObjectHandler_WithCache tests GetObject with cache enabled
 func TestGetObjectHandler_WithCache(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	tmpDir := t.TempDir()
 	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	objectData := []byte("cached object data")
 	backend := &MockBackend{
@@ -1549,13 +1549,13 @@ func TestGetObjectHandler_WithCache(t *testing.T) {
 // TestGetObjectHandler_CacheHit tests GetObject with cache hit
 func TestGetObjectHandler_CacheHit(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	tmpDir := t.TempDir()
 	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	objectData := []byte("cached object data for hit test")
 	cacheKey := "bucket1/key1"
@@ -1601,13 +1601,13 @@ func TestGetObjectHandler_CacheHit(t *testing.T) {
 // TestHeadObjectHandler_WithCache tests HeadObject with cache
 func TestHeadObjectHandler_WithCache(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	tmpDir := t.TempDir()
 	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	backend := &MockBackend{
 		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
@@ -1633,13 +1633,13 @@ func TestHeadObjectHandler_WithCache(t *testing.T) {
 // TestPutObjectHandler_WithCache tests PutObject with cache enabled
 func TestPutObjectHandler_WithCache(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 	tmpDir := t.TempDir()
 	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
 	if err != nil {
 		t.Fatalf("NewCacheManager failed: %v", err)
 	}
-	defer cm.Close()
+	defer func() { _ = cm.Close() }()
 
 	backend := &MockBackend{
 		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, data io.Reader) error {

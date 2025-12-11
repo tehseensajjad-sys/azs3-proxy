@@ -46,7 +46,7 @@ func TestCompliance(t *testing.T) {
 		t.Fatalf("Failed to listen on random port: %v", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
+	_ = listener.Close()
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", port)
 
@@ -93,7 +93,7 @@ func TestCompliance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create proxy server: %v", err)
 	}
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	httpServer := &http.Server{
 		Addr:    proxyAddr,
@@ -105,7 +105,7 @@ func TestCompliance(t *testing.T) {
 			t.Errorf("Server failed: %v", err)
 		}
 	}()
-	defer httpServer.Shutdown(ctx)
+	defer func() { _ = httpServer.Shutdown(ctx) }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -195,7 +195,7 @@ func testObjectOperations(ctx context.Context, t *testing.T, client *s3.Client, 
 	if err != nil {
 		t.Fatalf("GetObject failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -229,7 +229,7 @@ func testObjectOperations(ctx context.Context, t *testing.T, client *s3.Client, 
 		if err != nil {
 			t.Errorf("GetObject (copy) failed: %v", err)
 		} else {
-			copyResp.Body.Close()
+			_ = copyResp.Body.Close()
 		}
 	}
 
@@ -253,7 +253,7 @@ func testMultipartUpload(ctx context.Context, t *testing.T, client *s3.Client, b
 	partSize := 5 * 1024 * 1024
 	totalSize := 3 * partSize
 	data := make([]byte, totalSize)
-	rand.Read(data)
+	_, _ = rand.Read(data)
 
 	// Initiate
 	initResp, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
@@ -324,7 +324,7 @@ func testMultipartUpload(ctx context.Context, t *testing.T, client *s3.Client, b
 	if err != nil {
 		t.Fatalf("GetObject (multipart) failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	downloaded, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -419,14 +419,14 @@ func cleanupBucket(ctx context.Context, t *testing.T, client *s3.Client, bucketN
 	})
 	if err == nil {
 		for _, v := range versionsResp.Versions {
-			client.DeleteObject(ctx, &s3.DeleteObjectInput{
+			_, _ = client.DeleteObject(ctx, &s3.DeleteObjectInput{
 				Bucket:    aws.String(bucketName),
 				Key:       v.Key,
 				VersionId: v.VersionId,
 			})
 		}
 		for _, d := range versionsResp.DeleteMarkers {
-			client.DeleteObject(ctx, &s3.DeleteObjectInput{
+			_, _ = client.DeleteObject(ctx, &s3.DeleteObjectInput{
 				Bucket:    aws.String(bucketName),
 				Key:       d.Key,
 				VersionId: d.VersionId,
@@ -440,7 +440,7 @@ func cleanupBucket(ctx context.Context, t *testing.T, client *s3.Client, bucketN
 	})
 	if err == nil {
 		for _, o := range objectsResp.Contents {
-			client.DeleteObject(ctx, &s3.DeleteObjectInput{
+			_, _ = client.DeleteObject(ctx, &s3.DeleteObjectInput{
 				Bucket: aws.String(bucketName),
 				Key:    o.Key,
 			})
@@ -453,7 +453,7 @@ func cleanupBucket(ctx context.Context, t *testing.T, client *s3.Client, bucketN
 	})
 	if err == nil {
 		for _, u := range mpResp.Uploads {
-			client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+			_, _ = client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
 				Bucket:   aws.String(bucketName),
 				Key:      u.Key,
 				UploadId: u.UploadId,
@@ -474,20 +474,13 @@ func createS3Client(ctx context.Context, endpoint, accessKey, secretKey string) 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion("us-east-1"),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-		awsconfig.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				return aws.Endpoint{
-					URL:           "http://" + endpoint,
-					SigningRegion: "us-east-1",
-				}, nil
-			},
-		)),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String("http://" + endpoint)
 		o.UsePathStyle = true
 	}), nil
 }
