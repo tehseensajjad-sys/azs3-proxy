@@ -1,3 +1,5 @@
+//go:build integration
+
 package integration
 
 import (
@@ -79,11 +81,15 @@ func TestIntegration(t *testing.T) {
 			}
 		}
 	} else {
+		storageURL := fmt.Sprintf("https://%s.blob.core.windows.net", accountName)
+		if accountName == "devstoreaccount1" {
+			storageURL = "http://127.0.0.1:10000/devstoreaccount1"
+		}
 		cfg.AzureAuth = &config.AzureAuthConfig{
 			Mode:               config.AuthModeAccountKey,
 			StorageAccountName: accountName,
 			AccountKey:         accountKey,
-			StorageAccountURL:  fmt.Sprintf("https://%s.blob.core.windows.net", accountName),
+			StorageAccountURL:  storageURL,
 		}
 	}
 

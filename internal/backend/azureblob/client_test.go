@@ -1,10 +1,15 @@
 package azureblob
 
 import (
+	"bytes"
 	"context"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
 	"go.uber.org/zap"
 )
@@ -86,7 +91,8 @@ func TestAzureBlobBackendOperations(t *testing.T) {
 		t.Skip("Backend is nil, skipping operation tests")
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
 	// Test that operations exist and can be called
 	// They will fail with invalid credentials, but should not panic
@@ -96,6 +102,9 @@ func TestAzureBlobBackendOperations(t *testing.T) {
 	_ = backend.DeleteBucket(ctx, "bucket")
 	_, _ = backend.HeadObject(ctx, "bucket", "key")
 	_ = backend.DeleteObject(ctx, "bucket", "key")
+	_ = backend.PutObject(ctx, "bucket", "key", bytes.NewReader([]byte("test-data")))
+	_, _ = backend.GetObject(ctx, "bucket", "key")
+	_ = backend.CopyObject(ctx, "srcBucket", "srcKey", "destBucket", "destKey")
 }
 
 func TestAzureBlobBackendContextHandling(t *testing.T) {
@@ -541,4 +550,67 @@ func TestHeadObjectNotFound(t *testing.T) {
 func TestListObjectsEmpty(t *testing.T) {
 	// This test would require a real Azure client to test properly
 	t.Logf("ListObjects empty case requires real Azure SDK client for full coverage")
+}
+
+func TestVersioningOperations(t *testing.T) {
+	// Create a dummy credential
+	cred, err := azblob.NewSharedKeyCredential("account", "SGVsbG8gV29ybGQ=")
+	if err != nil {
+		t.Fatalf("Failed to create credential: %v", err)
+	}
+	client, err := azblob.NewClientWithSharedKeyCredential("https://invalid.blob.core.windows.net", cred, &azblob.ClientOptions{
+		ClientOptions: azcore.ClientOptions{
+			Retry: policy.RetryOptions{
+				MaxRetries:    0,
+				RetryDelay:    time.Millisecond,
+				MaxRetryDelay: time.Millisecond,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+
+	backend := &AzureBlobBackend{
+		client:           client,
+		versionedBuckets: make(map[string]bool),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	bucket := "test-bucket"
+
+	// Test EnableVersioning
+	err = backend.EnableVersioning(ctx, bucket)
+	if err == nil {
+		t.Error("EnableVersioning should fail with invalid credentials")
+	}
+
+	// Test GetVersioning
+	backend.versionedBuckets[bucket] = true
+	enabled, err := backend.GetVersioning(ctx, bucket)
+	if err != nil {
+		t.Errorf("GetVersioning failed: %v", err)
+	}
+	if !enabled {
+		t.Error("GetVersioning should return true")
+	}
+
+	// Test ListObjectVersions
+	_, err = backend.ListObjectVersions(ctx, bucket, "")
+	if err == nil {
+		t.Error("ListObjectVersions should fail with invalid credentials")
+	}
+
+	// Test GetObjectVersion
+	_, err = backend.GetObjectVersion(ctx, bucket, "key", "ver")
+	if err == nil {
+		t.Error("GetObjectVersion should fail with invalid credentials")
+	}
+
+	// Test DeleteObjectVersion
+	err = backend.DeleteObjectVersion(ctx, bucket, "key", "ver")
+	if err == nil {
+		t.Error("DeleteObjectVersion should fail with invalid credentials")
+	}
 }

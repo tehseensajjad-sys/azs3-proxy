@@ -5,10 +5,13 @@ import (
 	"fmt"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/log"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"go.uber.org/zap"
 
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/version"
 )
 
 // CredentialProvider abstracts Azure credential creation
@@ -190,14 +193,54 @@ func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuth
 
 	logger.Info("building azure blob client", zap.String("auth_mode", provider.String()), zap.String("account", authConfig.StorageAccountName))
 
+	// Configure Azure SDK logging
+	// Set global listener for Azure SDK logs
+	// Note: This is a global setting, so it affects all Azure clients in the process
+	log.SetListener(func(event log.Event, s string) {
+		logger.Debug("Azure SDK", zap.String("event", string(event)), zap.String("msg", s))
+	})
+
+	// Enable logging of HTTP requests/responses including body
+	// We enable Request and Response events
+	log.SetEvents(log.EventRequest, log.EventResponse)
+
+	clientOptions := &azblob.ClientOptions{
+		ClientOptions: azcore.ClientOptions{
+			Telemetry: policy.TelemetryOptions{
+				ApplicationID: "azs3-proxy/" + version.Version,
+			},
+			Logging: policy.LogOptions{
+				IncludeBody:        true,
+				AllowedHeaders:     []string{"*"},
+				AllowedQueryParams: []string{"*"},
+			},
+		},
+	}
+
 	// Handle different credential types
 	switch cred := provider.(type) {
 	case *AccountKeyCredential:
+		// Check if a custom storage URL is provided (e.g. for Azurite or Azure Stack)
+		if authConfig.StorageAccountURL != "" {
+			credential, err := azblob.NewSharedKeyCredential(cred.accountName, cred.accountKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create shared key credential: %w", err)
+			}
+			client, err := azblob.NewClientWithSharedKeyCredential(authConfig.StorageAccountURL, credential, clientOptions)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create blob client with shared key: %w", err)
+			}
+			logger.Info("azure blob client created successfully with custom URL",
+				zap.String("auth_mode", cred.String()),
+				zap.String("url", authConfig.StorageAccountURL))
+			return client, nil
+		}
+
 		// Account key uses connection string
 		connectionString := fmt.Sprintf(
 			"DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s;EndpointSuffix=core.windows.net",
 			cred.accountName, cred.accountKey)
-		client, err := azblob.NewClientFromConnectionString(connectionString, nil)
+		client, err := azblob.NewClientFromConnectionString(connectionString, clientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create blob client from connection string: %w", err)
 		}
@@ -211,7 +254,7 @@ func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuth
 			storageURL = fmt.Sprintf("https://%s.blob.core.windows.net", authConfig.StorageAccountName)
 		}
 		sasURL := fmt.Sprintf("%s?%s", storageURL, cred.sasToken)
-		client, err := azblob.NewClientWithNoCredential(sasURL, nil)
+		client, err := azblob.NewClientWithNoCredential(sasURL, clientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create blob client with SAS token: %w", err)
 		}
@@ -231,7 +274,7 @@ func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuth
 			storageURL = fmt.Sprintf("https://%s.blob.core.windows.net", authConfig.StorageAccountName)
 		}
 
-		client, err := azblob.NewClient(storageURL, tokenCred, nil)
+		client, err := azblob.NewClient(storageURL, tokenCred, clientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create blob client with token credential: %w", err)
 		}

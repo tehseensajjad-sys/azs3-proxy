@@ -101,7 +101,12 @@ func LoadAzureAuthConfig() (*AzureAuthConfig, error) {
 
 	// Build storage account URL if not explicitly provided
 	if cfg.StorageAccountURL == "" {
-		cfg.StorageAccountURL = fmt.Sprintf("https://%s.blob.core.windows.net", cfg.StorageAccountName)
+		if cfg.StorageAccountName == "devstoreaccount1" {
+			// Default to local Azurite emulator for devstoreaccount1
+			cfg.StorageAccountURL = "http://127.0.0.1:10000/devstoreaccount1"
+		} else {
+			cfg.StorageAccountURL = fmt.Sprintf("https://%s.blob.core.windows.net", cfg.StorageAccountName)
+		}
 	}
 
 	return cfg, nil

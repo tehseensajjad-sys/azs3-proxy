@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean docker-build
+.PHONY: all build test lint clean docker-build run stop
 
 # Build variables
 BINARY_NAME=azs3-proxy
@@ -9,8 +9,22 @@ all: lint test build
 
 build:
 	go clean
-	rm -rf /bin/
-	go build -o bin/$(BINARY_NAME) ./cmd/proxy
+	rm -rf bin
+	rm -rf azs3-proxy
+	go build -o $(BINARY_NAME) ./cmd/proxy
+
+run: build
+	@if [ -f .env ]; then \
+		set -a && . ./.env && set +a; \
+	else \
+		echo "Warning: .env file not found. Running without environment variables."; \
+	fi; \
+	env | grep AZURE; \
+	./$(BINARY_NAME) --log-level=debug
+
+stop: 
+	./$(BINARY_NAME) --stop
+	rm -rf *.pid
 
 test:
 	go test -v -race ./...
@@ -23,7 +37,8 @@ lint:
 
 clean:
 	go clean
-	rm -rf bin/
+	rm -rf bin
+	rm -rf azs3-proxy
 
 docker-build:
 	docker build -t $(DOCKER_IMAGE):$(VERSION) .

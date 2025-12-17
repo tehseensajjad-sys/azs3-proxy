@@ -46,6 +46,7 @@ func TestRecordMetrics_Enabled(t *testing.T) {
 	// Record metrics
 	mgr.RecordS3Request(ctx, "GetObject", true, "")
 	mgr.RecordS3Request(ctx, "GetObject", false, "AccessDenied")
+	mgr.RecordS3Request(ctx, "HeadObject", false, "")
 	mgr.RecordCacheHit(ctx, "key")
 	mgr.RecordCacheMiss(ctx, "key")
 	mgr.RecordCacheEviction(ctx, "size")

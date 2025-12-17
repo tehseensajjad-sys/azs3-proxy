@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -36,7 +37,7 @@ type Logger struct {
 // Returns a Logger configured with the specified level and output destination.
 func NewLogger(logFile string, logLevel LogLevel, mode string) (*Logger, error) {
 	// Get program name and PID to include in log output
-	programName := os.Args[0]
+	programName := filepath.Base(os.Args[0])
 	pid := os.Getpid()
 
 	// Create atomic level for potential dynamic log level changes in the future

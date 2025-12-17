@@ -2,10 +2,17 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,19 +23,87 @@ import (
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/logging"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/server"
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
-) // main is the entry point for the S3 to Azure Blob Storage proxy application.
+	"github.com/vibhansa-msft/s3-azure-proxy/internal/version"
+)
+
+var (
+	pidFileName    string
+	defaultLogFile string
+)
+
+func init() {
+	// Determine binary name for dynamic file naming
+	exe, err := os.Executable()
+	if err != nil {
+		exe = os.Args[0]
+	}
+	baseName := filepath.Base(exe)
+
+	pidFileName = baseName + ".pid"
+	defaultLogFile = baseName + ".log"
+}
+
+// main is the entry point for the S3 to Azure Blob Storage proxy application.
 // It performs the following initialization steps:
-//  1. Loads configuration from environment variables
+//  1. Loads configuration from environment variables and CLI flags
 //  2. Initializes the logging system (file, console, or both)
 //  3. Creates the HTTP router and S3 API server
 //  4. Starts the HTTP server (HTTP or HTTPS based on config)
 //  5. Handles graceful shutdown on SIGINT/SIGTERM signals
 func main() {
+	// Parse CLI flags
+	listenAddr := flag.String("addr", "", "Address and port to listen on (e.g., :8080 or 127.0.0.1:9000)")
+	logFileFlag := flag.String("log-file", "", "Path to log file")
+	logLevelFlag := flag.String("log-level", "", "Log level (debug, info, warn, error, crit)")
+	foreground := flag.Bool("foreground", false, "Run in foreground")
+	stop := flag.Bool("stop", false, "Stop the running daemon")
+	versionFlag := flag.Bool("version", false, "Print version and exit")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("azs3-proxy version %s\n", version.Version)
+		return
+	}
+
+	if *stop {
+		stopDaemon()
+		return
+	}
+
+	if !*foreground {
+		startDaemon()
+		return
+	}
+
+	// Setup crash handling (core dumps and panic logs)
+	setupCrashHandler()
+
 	// Load configuration from environment variables first.
 	// This must happen before logging setup to get logging configuration.
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
+	}
+
+	// Override configuration with CLI flags if provided
+	if *listenAddr != "" {
+		cfg.ListenAddr = *listenAddr
+	}
+	if *logFileFlag != "" {
+		cfg.LogFile = *logFileFlag
+	}
+	if *logLevelFlag != "" {
+		cfg.LogLevel = *logLevelFlag
+	}
+
+	// Set default log file if not configured
+	if cfg.LogFile == "" {
+		cfg.LogFile = defaultLogFile
+	}
+
+	// Default to file logging if not explicitly set by environment
+	if os.Getenv("LOG_MODE") == "" {
+		cfg.LogMode = "file"
 	}
 
 	// Initialize custom logger with configured output mode and level.
@@ -38,6 +113,8 @@ func main() {
 		log.Fatalf("failed to initialize logger: %v", err)
 	}
 	defer func() { _ = logger.Sync() }()
+
+	logger.Info("starting azs3-proxy", zap.String("version", version.Version))
 
 	// Initialize telemetry manager for metrics and logs export.
 	ctx := context.Background()
@@ -125,4 +202,128 @@ func main() {
 	}
 
 	logger.Info("server stopped")
+}
+
+func startDaemon() {
+	// Check if already running
+	if _, err := os.Stat(pidFileName); err == nil {
+		data, err := os.ReadFile(pidFileName)
+		if err == nil {
+			pidStr := strings.TrimSpace(string(data))
+			if pid, err := strconv.Atoi(pidStr); err == nil {
+				if proc, err := os.FindProcess(pid); err == nil {
+					// Check if process is actually running by sending signal 0
+					if err := proc.Signal(syscall.Signal(0)); err == nil {
+						fmt.Printf("Daemon is already running (PID: %d). Please stop it first.\n", pid)
+						os.Exit(1)
+					}
+				}
+			}
+		}
+		// PID file exists but process is dead, clean it up
+		_ = os.Remove(pidFileName)
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Printf("Failed to determine executable path: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Reconstruct arguments, appending --foreground to prevent infinite recursion
+	var args []string
+	args = append(args, os.Args[1:]...)
+	args = append(args, "--foreground")
+
+	cmd := exec.Command(exe, args...)
+	cmd.Env = append(os.Environ(), "GOTRACEBACK=crash")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("Failed to start daemon: %v\n", err)
+		os.Exit(1)
+	}
+
+	pid := cmd.Process.Pid
+	if err := os.WriteFile(pidFileName, []byte(strconv.Itoa(pid)), 0644); err != nil {
+		fmt.Printf("Warning: Failed to write PID file: %v\n", err)
+	}
+
+	fmt.Printf("S3 Proxy started in background (PID: %d)\n", pid)
+	fmt.Printf("Logs are being written to %s\n", defaultLogFile)
+}
+
+func stopDaemon() {
+	data, err := os.ReadFile(pidFileName)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("PID file not found. Is the server running?")
+		} else {
+			fmt.Printf("Error reading PID file: %v\n", err)
+		}
+		return
+	}
+
+	pidStr := strings.TrimSpace(string(data))
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil {
+		fmt.Printf("Invalid PID in file: %v\n", err)
+		return
+	}
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		fmt.Printf("Process %d not found: %v\n", pid, err)
+		return
+	}
+
+	// Send SIGTERM
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		fmt.Printf("Failed to stop process %d: %v\n", pid, err)
+		return
+	}
+
+	fmt.Printf("Stopped process %d\n", pid)
+	_ = os.Remove(pidFileName)
+}
+
+// setupCrashHandler configures the process to generate core dumps and crash logs
+func setupCrashHandler() {
+	// 1. Enable core dumps in Go runtime
+	debug.SetTraceback("crash")
+
+	// 2. Try to set ulimit -c unlimited to allow OS to write core files
+	var rLimit syscall.Rlimit
+	err := syscall.Getrlimit(syscall.RLIMIT_CORE, &rLimit)
+	if err == nil {
+		rLimit.Max = ^uint64(0)
+		rLimit.Cur = ^uint64(0)
+		_ = syscall.Setrlimit(syscall.RLIMIT_CORE, &rLimit)
+	}
+
+	// 3. Redirect stderr to a crash log file if we are not running in a terminal
+	// This ensures panic stack traces are captured in a file named <binary>-crash-<pid>.log
+	if !isTerminal(int(os.Stderr.Fd())) {
+		exe, _ := os.Executable()
+		baseName := filepath.Base(exe)
+		pid := os.Getpid()
+		crashFile := fmt.Sprintf("%s-crash-%d.log", baseName, pid)
+
+		// Open crash log file
+		f, err := os.OpenFile(crashFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+		if err == nil {
+			// Redirect stderr (fd 2) to the file
+			// We ignore the error here as we can't do much if it fails
+			_ = syscall.Dup2(int(f.Fd()), 2)
+		}
+	}
+}
+
+// isTerminal checks if the file descriptor is a terminal
+func isTerminal(fd int) bool {
+	fileInfo, err := os.Stat("/dev/stderr")
+	if err != nil {
+		return false
+	}
+	return (fileInfo.Mode() & os.ModeCharDevice) != 0
 }

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 )
 
@@ -91,7 +93,7 @@ func (av *AuthVerifier) VerifySignature(r *http.Request) error {
 	stringToSign := av.buildStringToSign(canonicalRequest, amzDate, dateStamp, region, service)
 
 	// Calculate expected signature from the request data
-	expectedSignature := av.calculateSignature(stringToSign, dateStamp)
+	expectedSignature := av.calculateSignature(stringToSign, dateStamp, region)
 
 	// Verify the signature matches what client sent
 	if expectedSignature != signaturePart {
@@ -122,13 +124,16 @@ func (av *AuthVerifier) buildCanonicalRequest(r *http.Request, signedHeaders str
 	}
 
 	// Get query string from request URL (if present)
-	canonicalQueryString := r.URL.RawQuery
+	canonicalQueryString := av.buildCanonicalQueryString(r)
 
 	// Build canonical headers string from signed headers list
 	canonicalHeaders := av.buildCanonicalHeaders(r, signedHeaders)
 
-	// Hashed payload - for GET requests without body, use hash of empty string
-	hashedPayload := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" // SHA256("")
+	// Hashed payload
+	hashedPayload := r.Header.Get("x-amz-content-sha256")
+	if hashedPayload == "" {
+		hashedPayload = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" // SHA256("")
+	}
 
 	// Combine all components into canonical request format
 	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
@@ -141,6 +146,39 @@ func (av *AuthVerifier) buildCanonicalRequest(r *http.Request, signedHeaders str
 	)
 
 	return canonicalRequest
+}
+
+// buildCanonicalQueryString builds the canonical query string for signature calculation.
+// Parameters are sorted by name, then value. Names and values are URI-encoded.
+// Empty values are represented as "key=".
+func (av *AuthVerifier) buildCanonicalQueryString(r *http.Request) string {
+	query := r.URL.Query()
+	if len(query) == 0 {
+		return ""
+	}
+
+	var keys []string
+	for k := range query {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var parts []string
+	for _, k := range keys {
+		vals := query[k]
+		sort.Strings(vals)
+
+		encodedKey := url.QueryEscape(k)
+		encodedKey = strings.ReplaceAll(encodedKey, "+", "%20")
+
+		for _, v := range vals {
+			encodedValue := url.QueryEscape(v)
+			encodedValue = strings.ReplaceAll(encodedValue, "+", "%20")
+			parts = append(parts, encodedKey+"="+encodedValue)
+		}
+	}
+
+	return strings.Join(parts, "&")
 }
 
 // buildCanonicalHeaders builds the canonical headers string for signature calculation.
@@ -157,6 +195,11 @@ func (av *AuthVerifier) buildCanonicalHeaders(r *http.Request, signedHeaders str
 		headerValue := r.Header.Get(headerName)
 		if headerValue == "" {
 			headerValue = r.Header.Get(strings.ToLower(headerName))
+		}
+
+		// Special handling for Host header in Go
+		if strings.ToLower(headerName) == "host" && headerValue == "" {
+			headerValue = r.Host
 		}
 
 		// Append formatted header (lowercase name with value)
@@ -198,15 +241,15 @@ func (av *AuthVerifier) buildStringToSign(canonicalRequest, amzDate, dateStamp, 
 //	kService = HMAC-SHA256(kRegion, "s3")
 //	kSigning = HMAC-SHA256(kService, "aws4_request")
 //	signature = Hex(HMAC-SHA256(kSigning, stringToSign))
-func (av *AuthVerifier) calculateSignature(stringToSign string, dateStamp string) string {
+func (av *AuthVerifier) calculateSignature(stringToSign, dateStamp, region string) string {
 	// Start with AWS4 prefix and secret key
 	kSecret := "AWS4" + av.secretKey
 
 	// Derive key for date
 	kDate := hmacSHA256(kSecret, dateStamp)
 
-	// Derive key for region (always us-east-1 for S3)
-	kRegion := hmacSHA256(string(kDate), "us-east-1")
+	// Derive key for region
+	kRegion := hmacSHA256(string(kDate), region)
 
 	// Derive key for service (s3)
 	kService := hmacSHA256(string(kRegion), "s3")
