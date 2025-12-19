@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean docker-build run stop
+.PHONY: all build test lint clean docker-build run stop test-app
 
 # Build variables
 BINARY_NAME=azs3-proxy
@@ -14,6 +14,12 @@ build:
 	go build -o $(BINARY_NAME) ./cmd/proxy
 
 run: build
+	@echo "Checking for process on port 8080..."
+	@pid=$$(lsof -ti :8080); \
+	if [ -n "$$pid" ]; then \
+		echo "Killing process $$pid on port 8080"; \
+		kill -9 $$pid; \
+	fi
 	@if [ -f .env ]; then \
 		set -a && . ./.env && set +a; \
 	else \
@@ -28,6 +34,10 @@ stop:
 
 test:
 	go test -v -race ./...
+
+test-app:
+	@echo "Starting interactive test client..."
+	@cd examples/python-s3-client && python3 interactive_menu.py
 
 test-compliance:
 	go test -v -race ./test/compliance/...

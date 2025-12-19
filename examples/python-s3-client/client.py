@@ -13,7 +13,7 @@ def main():
     secret_key = os.environ.get('S3_SECRET_KEY', 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY')
     proxy_url = os.environ.get('PROXY_URL', 'http://localhost:8080')
     
-    bucket_name = os.environ.get('BUCKET_NAME', 'test-bucket-python')
+    bucket_name = os.environ.get('BUCKET_NAME', 'testcntgo2')
     file_name = "random_1mb.bin"
     data_size = 1024 * 1024 # 1MB
 

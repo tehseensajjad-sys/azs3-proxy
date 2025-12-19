@@ -15,4 +15,4 @@ def get_s3_client():
     )
 
 def get_bucket_name():
-    return os.environ.get('BUCKET_NAME', 'test-bucket-python')
+    return os.environ.get('BUCKET_NAME', 'testcntgo2')

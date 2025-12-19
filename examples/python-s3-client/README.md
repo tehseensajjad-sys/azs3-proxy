@@ -22,7 +22,7 @@ The script uses the following default credentials, which match the examples in t
 export S3_ACCESS_KEY=AKIA1234567890ABCDEF
 export S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
 export PROXY_URL=http://localhost:8080
-export BUCKET_NAME=test-bucket-python # Optional: Defaults to test-bucket-python
+export BUCKET_NAME=test-bucket # Optional: Defaults to test-bucket
 ```
 
 ### Azure Authentication (SAS Token)
@@ -91,4 +91,4 @@ If successful, the script will:
 2. Upload it as `random_1mb.bin` to the specified bucket.
 3. Read the file back and verify the content matches exactly.
 
-You can then verify the file exists in your Azure Storage Account (container `test-bucket-python` or your custom name) via the Azure Portal.
+You can then verify the file exists in your Azure Storage Account (container `test-bucket` or your custom name) via the Azure Portal.
