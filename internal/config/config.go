@@ -75,7 +75,7 @@ func LoadConfig() (*Config, error) {
 		LogFile:           getEnv("LOG_FILE", ""),
 		LogMode:           getEnv("LOG_MODE", "console"),
 		CacheEnabled:      getEnv("CACHE_ENABLED", "false") == "true",
-		CachePath:         getEnv("CACHE_PATH", "/tmp/s3-azure-proxy-cache"),
+		CachePath:         getEnv("CACHE_PATH", "/tmp/azs3-proxy-cache"),
 		CacheMaxSize:      cacheMaxSize,
 		CacheTTL:          cacheTTL,
 	}

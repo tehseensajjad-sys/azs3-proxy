@@ -14,7 +14,7 @@ func TestLoadTelemetryConfig(t *testing.T) {
 		t.Fatal("LoadTelemetryConfig returned nil")
 	}
 
-	if cfg.ServiceName != "s3-azure-proxy" {
+	if cfg.ServiceName != "azs3-proxy" {
 		t.Errorf("unexpected ServiceName: %q", cfg.ServiceName)
 	}
 

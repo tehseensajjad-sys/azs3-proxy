@@ -205,6 +205,15 @@ func (s *S3ProxyServer) registerRoutes() {
 	// Delete bucket
 	s.router.Delete("/{bucket}", s3Handler.DeleteBucketHandler)
 
+	// Bucket operations: POST (DeleteObjects)
+	s.router.Post("/{bucket}", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("delete") {
+			s3Handler.DeleteObjectsHandler(w, r)
+		} else {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+
 	// Object operations: GET with query parameters
 	// Must come after bucket routes to avoid path conflicts
 	s.router.Get("/{bucket}/*", func(w http.ResponseWriter, r *http.Request) {
@@ -256,6 +265,13 @@ func (s *S3ProxyServer) registerRoutes() {
 // It closes the cache manager if it was initialized.
 // Should be called before application shutdown.
 func (s *S3ProxyServer) Close() error {
+	if s.backend != nil {
+		if err := s.backend.Close(); err != nil {
+			s.logger.Error("failed to close backend", zap.Error(err))
+			// Continue closing other resources
+		}
+	}
+
 	if s.cacheManager != nil {
 		if err := s.cacheManager.Close(); err != nil {
 			s.logger.Error("failed to close cache manager", zap.Error(err))

@@ -35,6 +35,9 @@ type StorageBackend interface {
 	ListObjectVersions(ctx context.Context, bucketName, prefix string) ([]interface{}, error)
 	GetObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error)
 	DeleteObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) error
+
+	// Lifecycle operations
+	Close() error
 }
 
 // Part represents information about an uploaded part

@@ -68,6 +68,23 @@ func NewAzureBlobBackend(connectionString string) (*AzureBlobBackend, error) {
 	}, nil
 }
 
+var (
+	clientCache      = make(map[string]*azblob.Client)
+	clientCacheMutex sync.RWMutex
+)
+
+func getClientCacheKey(cfg *config.AzureAuthConfig) string {
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s",
+		cfg.Mode,
+		cfg.StorageAccountName,
+		cfg.AccountKey,
+		cfg.SASToken,
+		cfg.MSIClientID,
+		cfg.SPNClientID,
+		cfg.FederatedClientID,
+	)
+}
+
 // NewAzureBlobBackendWithAuth creates an Azure Blob backend using flexible authentication.
 // Supports six authentication methods: account key, SAS, MSI, SPN, federated token, and Azure CLI.
 // Logs authentication method and storage account for audit/debugging purposes.
@@ -79,15 +96,33 @@ func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 		zap.String("storage_account", authConfig.StorageAccountName),
 		zap.String("auth_mode", authConfig.Mode.String()))
 
-	// Build Azure client using the appropriate authentication credential
-	client, err := BuildClientFromCredential(ctx, authConfig, logger)
-	if err != nil {
-		logger.Error("failed to build azure blob client",
-			zap.Error(err),
+	// Check cache first
+	cacheKey := getClientCacheKey(authConfig)
+	clientCacheMutex.RLock()
+	client, ok := clientCache[cacheKey]
+	clientCacheMutex.RUnlock()
+
+	if ok {
+		logger.Info("using cached azure blob client",
 			zap.String("storage_account", authConfig.StorageAccountName),
 			zap.String("auth_mode", authConfig.Mode.String()))
+	} else {
+		var err error
+		// Build Azure client using the appropriate authentication credential
+		client, err = BuildClientFromCredential(ctx, authConfig, logger)
+		if err != nil {
+			logger.Error("failed to build azure blob client",
+				zap.Error(err),
+				zap.String("storage_account", authConfig.StorageAccountName),
+				zap.String("auth_mode", authConfig.Mode.String()))
 
-		return nil, fmt.Errorf("failed to build azure blob client: %w", err)
+			return nil, fmt.Errorf("failed to build azure blob client: %w", err)
+		}
+
+		// Update cache
+		clientCacheMutex.Lock()
+		clientCache[cacheKey] = client
+		clientCacheMutex.Unlock()
 	}
 
 	// Log successful initialization
@@ -476,6 +511,19 @@ func (ab *AzureBlobBackend) DeleteObjectVersion(ctx context.Context, bucketName,
 	_, err := blobClient.Delete(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to delete object version: %w", err)
+	}
+
+	return nil
+}
+
+// Close clears the global client cache and releases resources.
+func (ab *AzureBlobBackend) Close() error {
+	clientCacheMutex.Lock()
+	defer clientCacheMutex.Unlock()
+
+	// Clear the map
+	for k := range clientCache {
+		delete(clientCache, k)
 	}
 
 	return nil

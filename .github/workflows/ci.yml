@@ -78,4 +78,4 @@ jobs:
         with:
           context: .
           push: false
-          tags: s3-azure-proxy:latest
+          tags: azs3-proxy:latest

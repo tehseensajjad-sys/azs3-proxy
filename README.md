@@ -27,6 +27,8 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 - ✅ CopyObject support (server-side copy)
 - ✅ Streaming support (no full object buffering)
 - ✅ Connection pooling & concurrency optimization
+- ✅ Client connection caching for improved performance
+- ✅ Graceful shutdown & resource cleanup
 - ✅ Structured logging with zap
 - ✅ Telemetry with OpenTelemetry (Prometheus & Azure Monitor)
 - ✅ Easy Docker deployment
@@ -34,6 +36,10 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage us
 ## API Compatibility
 
 For a detailed list of supported S3 operations and their Azure Blob Storage equivalents, please refer to the [API Compatibility Matrix](COMPATIBILITY.md).
+
+## Telemetry
+
+For detailed information about metrics, logging, and observability configuration, please refer to the [Telemetry Documentation](TELEMETRY.md).
 
 ## Use Cases
 

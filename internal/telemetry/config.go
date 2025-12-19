@@ -34,7 +34,7 @@ type TelemetryConfig struct {
 func LoadTelemetryConfig() *TelemetryConfig {
 	return &TelemetryConfig{
 		Enabled:                parseBool(os.Getenv("TELEMETRY_ENABLED"), true),
-		ServiceName:            getOrDefault(os.Getenv("SERVICE_NAME"), "s3-azure-proxy"),
+		ServiceName:            getOrDefault(os.Getenv("SERVICE_NAME"), "azs3-proxy"),
 		ServiceVersion:         getOrDefault(os.Getenv("SERVICE_VERSION"), "1.0.0"),
 		Environment:            getOrDefault(os.Getenv("ENVIRONMENT"), "development"),
 		ExportType:             getOrDefault(os.Getenv("TELEMETRY_EXPORT_TYPE"), "azuremonitor"),

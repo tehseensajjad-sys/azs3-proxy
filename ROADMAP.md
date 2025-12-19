@@ -1,6 +1,6 @@
 # Project Roadmap & Pending Items
 
-This document outlines the pending tasks, improvements, and future features for the `s3-azure-proxy` project.
+This document outlines the pending tasks, improvements, and future features for the `azs3-proxy` project.
 
 ## Priority Levels
 - **P0**: Critical / Immediate Blocker

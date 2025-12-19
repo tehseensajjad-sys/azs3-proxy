@@ -1,11 +1,11 @@
 # Python S3 Client Example
 
-This example demonstrates how to use the standard Python `boto3` library to interact with the `s3-azure-proxy`.
+This example demonstrates how to use the standard Python `boto3` library to interact with the `azs3-proxy`.
 
 ## Prerequisites
 
 - Python 3.x installed
-- `s3-azure-proxy` running locally (default: `http://localhost:8080`)
+- `azs3-proxy` running locally (default: `http://localhost:8080`)
 
 ## Setup
 

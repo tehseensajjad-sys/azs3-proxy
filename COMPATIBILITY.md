@@ -58,3 +58,27 @@ The proxy attempts to map Azure Blob Storage errors to their closest S3 equivale
 - `BlobNotFound` -> `NoSuchKey`
 - `ContainerAlreadyExists` -> `BucketAlreadyExists`
 - `AuthorizationPermissionMismatch` -> `AccessDenied`
+
+## Azure Authentication Support
+
+The proxy supports multiple methods for authenticating with Azure Blob Storage:
+
+| Method | Config Mode | Description |
+|--------|-------------|-------------|
+| **Account Key** | `account_key` | Uses Storage Account Name and Key. Simple but less secure. |
+| **SAS Token** | `sas` | Uses Shared Access Signature token. Granular access control. |
+| **Managed Identity** | `msi` | Uses Azure Managed Identity (System or User Assigned). Recommended for Azure deployments. |
+| **Service Principal** | `spn` | Uses Client ID and Secret. Good for external applications. |
+| **Workload Identity** | `federated_token` | Uses Federated Identity (OIDC). Ideal for Kubernetes (AKS). |
+| **Azure CLI** | `az_cli` | Uses local Azure CLI credentials. Best for local development. |
+
+## Storage Account Compatibility
+
+| Account Type | Supported | Notes |
+|--------------|-----------|-------|
+| **Standard General Purpose v2** | ✅ Yes | Native support via Blob API. |
+| **Premium Block Blob** | ✅ Yes | Native support via Blob API. |
+| **Data Lake Storage Gen2 (HNS)** | ✅ Yes | Supported via **Blob API endpoint** (`blob.core.windows.net`). Multi-protocol access allows S3 operations to work on HNS accounts, but they are treated as a flat namespace. The `dfs` endpoint is not used. |
+| **Blob Storage (Legacy)** | ✅ Yes | Supported. |
+
+

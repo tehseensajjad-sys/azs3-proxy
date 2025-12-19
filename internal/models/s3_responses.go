@@ -182,3 +182,39 @@ type ErrorResponse struct {
 	Resource  string   `xml:"Resource,omitempty"`  // Resource that caused the error (optional)
 	RequestID string   `xml:"RequestId,omitempty"` // Request ID for tracking (optional)
 }
+
+// DeleteObjectsRequest represents the S3 API request for the DeleteObjects operation.
+type DeleteObjectsRequest struct {
+	XMLName xml.Name           `xml:"Delete"`
+	Quiet   bool               `xml:"Quiet"`
+	Objects []ObjectIdentifier `xml:"Object"`
+}
+
+// ObjectIdentifier represents an object to delete in DeleteObjectsRequest.
+type ObjectIdentifier struct {
+	Key       string `xml:"Key"`
+	VersionID string `xml:"VersionId,omitempty"`
+}
+
+// DeleteResult represents the S3 API response for the DeleteObjects operation.
+type DeleteResult struct {
+	XMLName xml.Name        `xml:"DeleteResult"`
+	Deleted []DeletedObject `xml:"Deleted"`
+	Error   []ErrorResult   `xml:"Error"`
+}
+
+// DeletedObject represents a successfully deleted object in DeleteResult.
+type DeletedObject struct {
+	Key                   string `xml:"Key"`
+	VersionID             string `xml:"VersionId,omitempty"`
+	DeleteMarker          bool   `xml:"DeleteMarker,omitempty"`
+	DeleteMarkerVersionID string `xml:"DeleteMarkerVersionId,omitempty"`
+}
+
+// ErrorResult represents a failed deletion in DeleteResult.
+type ErrorResult struct {
+	Key       string `xml:"Key"`
+	VersionID string `xml:"VersionId,omitempty"`
+	Code      string `xml:"Code"`
+	Message   string `xml:"Message"`
+}

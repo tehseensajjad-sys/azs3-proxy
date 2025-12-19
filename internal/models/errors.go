@@ -30,6 +30,9 @@ const (
 
 	// InternalError is returned for unexpected server errors
 	InternalError S3ErrorCode = "InternalError"
+
+	// MalformedXML is returned when the XML provided was not well-formed
+	MalformedXML S3ErrorCode = "MalformedXML"
 )
 
 // ErrorCodeToHTTPStatus maps S3 error codes to appropriate HTTP status codes.
@@ -42,6 +45,7 @@ var ErrorCodeToHTTPStatus = map[S3ErrorCode]int{
 	InvalidBucketName:   http.StatusBadRequest,          // 400
 	InvalidArgument:     http.StatusBadRequest,          // 400
 	InternalError:       http.StatusInternalServerError, // 500
+	MalformedXML:        http.StatusBadRequest,          // 400
 }
 
 // AzureErrorToS3 maps Azure Blob Storage error messages to S3 error codes.

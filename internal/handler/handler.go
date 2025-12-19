@@ -1189,3 +1189,71 @@ func (h *S3Handler) DeleteObjectVersionHandler(w http.ResponseWriter, r *http.Re
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// DeleteObjectsHandler handles POST /{bucket}?delete
+// Deletes multiple objects in a single request.
+func (h *S3Handler) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	h.logger.Debug("DeleteObjects request", zap.String("bucket", bucket))
+
+	// Parse request body
+	var deleteReq models.DeleteObjectsRequest
+	if err := xml.NewDecoder(r.Body).Decode(&deleteReq); err != nil {
+		h.logger.Error("failed to parse delete objects request", zap.Error(err))
+		s3Err := &models.S3Error{
+			Code:    models.MalformedXML,
+			Message: "The XML you provided was not well-formed or did not validate against our published schema",
+		}
+		h.writeErrorResponse(w, s3Err)
+		return
+	}
+
+	result := models.DeleteResult{}
+
+	// Process each object deletion
+	for _, obj := range deleteReq.Objects {
+		var err error
+		if obj.VersionID != "" {
+			err = h.backend.DeleteObjectVersion(r.Context(), bucket, obj.Key, obj.VersionID)
+		} else {
+			err = h.backend.DeleteObject(r.Context(), bucket, obj.Key)
+		}
+
+		if err != nil {
+			h.logger.Warn("failed to delete object in batch",
+				zap.String("bucket", bucket),
+				zap.String("key", obj.Key),
+				zap.Error(err))
+
+			result.Error = append(result.Error, models.ErrorResult{
+				Key:       obj.Key,
+				VersionID: obj.VersionID,
+				Code:      "InternalError",
+				Message:   err.Error(),
+			})
+		} else {
+			if !deleteReq.Quiet {
+				result.Deleted = append(result.Deleted, models.DeletedObject{
+					Key:       obj.Key,
+					VersionID: obj.VersionID,
+				})
+			}
+
+			// Invalidate cache if enabled
+			if h.cacheManager != nil {
+				cacheKey := generateCacheKey(bucket, obj.Key)
+				_ = h.cacheManager.InvalidateObject(cacheKey)
+			}
+		}
+	}
+
+	h.stats.RecordDeleteObject(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "DeleteObjects", true, "")
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	xmlData, _ := xml.Marshal(result)
+	_, _ = w.Write(xmlData)
+}
