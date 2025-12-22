@@ -37,6 +37,22 @@ type MockBackend struct {
 	ListObjectVersionsFunc      func(ctx context.Context, bucketName, prefix string) ([]interface{}, error)
 	GetObjectVersionFunc        func(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error)
 	DeleteObjectVersionFunc     func(ctx context.Context, bucketName, objectKey, versionID string) error
+	HeadBucketFunc              func(ctx context.Context, bucketName string) (bool, error)
+	CloseFunc                   func() error
+}
+
+func (m *MockBackend) HeadBucket(ctx context.Context, bucketName string) (bool, error) {
+	if m.HeadBucketFunc != nil {
+		return m.HeadBucketFunc(ctx, bucketName)
+	}
+	return true, nil
+}
+
+func (m *MockBackend) Close() error {
+	if m.CloseFunc != nil {
+		return m.CloseFunc()
+	}
+	return nil
 }
 
 func (m *MockBackend) ListBuckets(ctx context.Context) ([]string, error) {
@@ -228,6 +244,58 @@ func TestListBucketsHandler(t *testing.T) {
 			r.Get("/", handler.ListBucketsHandler)
 
 			req := httptest.NewRequest("GET", "/", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tt.expectedStatus {
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, w.Code)
+			}
+		})
+	}
+}
+
+func TestHeadBucketHandler(t *testing.T) {
+	tests := []struct {
+		name           string
+		bucketExists   bool
+		headBucketErr  error
+		expectedStatus int
+	}{
+		{
+			name:           "bucket exists",
+			bucketExists:   true,
+			headBucketErr:  nil,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "bucket does not exist",
+			bucketExists:   false,
+			headBucketErr:  nil,
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "backend error",
+			bucketExists:   false,
+			headBucketErr:  errors.New("backend error"),
+			expectedStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockBackend := &MockBackend{
+				HeadBucketFunc: func(ctx context.Context, bucketName string) (bool, error) {
+					return tt.bucketExists, tt.headBucketErr
+				},
+			}
+			logger, _ := zap.NewDevelopment()
+			defer func() { _ = logger.Sync() }()
+			handler := NewS3Handler(mockBackend, logger)
+
+			r := chi.NewRouter()
+			r.Head("/{bucket}", handler.HeadBucketHandler)
+
+			req := httptest.NewRequest("HEAD", "/test-bucket", nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 
@@ -1718,4 +1786,101 @@ func TestPutObjectHandler_CopyObject(t *testing.T) {
 			t.Errorf("expected status 400, got %d", w.Code)
 		}
 	})
+}
+
+func TestDeleteObjectsHandler(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	backend := &MockBackend{
+		DeleteObjectFunc: func(ctx context.Context, bucketName, objectKey string) error {
+			if objectKey == "error" {
+				return errors.New("delete failed")
+			}
+			return nil
+		},
+	}
+	handler := NewS3Handler(backend, logger)
+
+	t.Run("success", func(t *testing.T) {
+		body := `
+		<Delete>
+			<Object>
+				<Key>obj1</Key>
+			</Object>
+			<Object>
+				<Key>obj2</Key>
+			</Object>
+		</Delete>`
+		req := httptest.NewRequest("POST", "/test-bucket?delete", strings.NewReader(body))
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("bucket", "test-bucket")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+		w := httptest.NewRecorder()
+		handler.DeleteObjectsHandler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("malformed xml", func(t *testing.T) {
+		body := `<Delete><Object><Key>obj1</Key></Object>` // Missing closing Delete
+		req := httptest.NewRequest("POST", "/test-bucket?delete", strings.NewReader(body))
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("bucket", "test-bucket")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+		w := httptest.NewRecorder()
+		handler.DeleteObjectsHandler(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+	})
+}
+
+func TestHeadObjectHandler_CacheHit(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	tmpDir := t.TempDir()
+	cm, err := cache.NewCacheManager(tmpDir, 10*1024*1024, 3600)
+	if err != nil {
+		t.Fatalf("NewCacheManager failed: %v", err)
+	}
+	defer func() { _ = cm.Close() }()
+
+	// Pre-populate cache
+	content := []byte("cached content")
+	err = cm.CacheObject("bucket1/key1", content)
+	if err != nil {
+		t.Fatalf("CacheObject failed: %v", err)
+	}
+
+	backend := &MockBackend{
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
+			t.Error("Backend HeadObject should not be called on cache hit")
+			return true, nil
+		},
+	}
+
+	handler := NewS3Handler(backend, logger)
+	handler.SetCacheManager(cm)
+
+	r := chi.NewRouter()
+	r.Head("/{bucket}/*", handler.HeadObjectHandler)
+
+	req := httptest.NewRequest("HEAD", "/bucket1/key1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	if w.Header().Get("X-Cache-Hit") != "true" {
+		t.Error("expected X-Cache-Hit header to be true")
+	}
+
+	if w.Header().Get("Content-Length") != "14" { // len("cached content")
+		t.Errorf("expected Content-Length 14, got %s", w.Header().Get("Content-Length"))
+	}
 }

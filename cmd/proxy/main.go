@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
@@ -125,6 +126,12 @@ func main() {
 	}
 	if telMgr != nil && telMgr.IsEnabled() {
 		logger.Info("telemetry enabled", zap.String("config", "see TELEMETRY.md for details"))
+
+		// Attach OTel Zap Core for log export
+		otelCore := telemetry.NewOtelZapCore(logger.GetZapLogger().Core())
+		logger = logger.WithCore(otelCore)
+	} else {
+		logger.Info("telemetry disabled")
 	}
 
 	// Create the Chi HTTP router for request routing and middleware.
@@ -137,10 +144,16 @@ func main() {
 		logger.Crit("failed to create S3 proxy server", zap.Error(err))
 	}
 
-	// Create the HTTP server with configured address and request timeouts.
+	// Wrap router with OpenTelemetry handler if tracing is enabled
+	var handler http.Handler = router
+	if telMgr != nil && telMgr.IsEnabled() {
+		handler = otelhttp.NewHandler(router, "s3-proxy")
+	}
+
+	// Configure the HTTP server with timeouts and handler.
 	httpServer := &http.Server{
 		Addr:    cfg.ListenAddr,
-		Handler: router,
+		Handler: handler,
 		// Set read/write timeouts to prevent slow client attacks
 		ReadHeaderTimeout: 30 * time.Second,
 		ReadTimeout:       60 * time.Second,

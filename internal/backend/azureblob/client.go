@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"go.uber.org/zap"
@@ -160,6 +161,20 @@ func (ab *AzureBlobBackend) ListBuckets(ctx context.Context) ([]string, error) {
 		}
 	}
 	return buckets, nil
+}
+
+// HeadBucket checks if a container exists in Azure Blob Storage.
+func (ab *AzureBlobBackend) HeadBucket(ctx context.Context, bucketName string) (bool, error) {
+	containerClient := ab.client.ServiceClient().NewContainerClient(bucketName)
+	_, err := containerClient.GetProperties(ctx, nil)
+	if err != nil {
+		// Check if error is 404 Not Found
+		if bloberror.HasCode(err, bloberror.ContainerNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (ab *AzureBlobBackend) CreateBucket(ctx context.Context, bucketName string) error {

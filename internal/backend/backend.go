@@ -12,6 +12,7 @@ type StorageBackend interface {
 	ListBuckets(ctx context.Context) ([]string, error)
 	CreateBucket(ctx context.Context, bucketName string) error
 	DeleteBucket(ctx context.Context, bucketName string) error
+	HeadBucket(ctx context.Context, bucketName string) (bool, error)
 
 	// Object operations
 	PutObject(ctx context.Context, bucketName, objectKey string, data io.Reader) error

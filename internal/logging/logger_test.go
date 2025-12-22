@@ -68,3 +68,66 @@ func TestLogger_Methods(t *testing.T) {
 	logger.Error("error msg")
 	// logger.Fatal calls os.Exit, so we skip it
 }
+
+func TestLogger_AdvancedMethods(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test-log-advanced-*.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_ = tmpFile.Close()
+
+	logger, err := NewLogger(tmpFile.Name(), "info", "file")
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+
+	// Test Sync
+	if err := logger.Sync(); err != nil {
+		// Sync might fail on some systems/files, but we just want to cover the call
+		t.Logf("Sync returned error: %v", err)
+	}
+
+	// Test GetZapLogger
+	zapLogger := logger.GetZapLogger()
+	if zapLogger == nil {
+		t.Error("GetZapLogger returned nil")
+	}
+
+	// Test WithCore
+	// Create a dummy core
+	core := zap.NewNop().Core()
+	newLogger := logger.WithCore(core)
+	if newLogger == nil {
+		t.Error("WithCore returned nil")
+	}
+}
+
+func TestFileWriterWrapper(t *testing.T) {
+	tmpfile, err := os.CreateTemp("", "test_wrapper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	wrapper := &FileWriterWrapper{
+		file:        tmpfile,
+		programName: "test",
+		pid:         123,
+	}
+
+	_, err = wrapper.Write([]byte("test log"))
+	if err != nil {
+		t.Errorf("Write failed: %v", err)
+	}
+
+	err = wrapper.Sync()
+	if err != nil {
+		t.Errorf("Sync failed: %v", err)
+	}
+
+	err = wrapper.Close()
+	if err != nil {
+		t.Errorf("Close failed: %v", err)
+	}
+}

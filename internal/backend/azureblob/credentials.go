@@ -3,11 +3,13 @@ package azureblob
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 
 	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
@@ -206,6 +208,14 @@ func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuth
 
 	clientOptions := &azblob.ClientOptions{
 		ClientOptions: azcore.ClientOptions{
+			Transport: &http.Client{
+				Transport: otelhttp.NewTransport(
+					http.DefaultTransport,
+					otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+						return "AzureBlob: " + r.Method + " " + r.URL.Path
+					}),
+				),
+			},
 			Telemetry: policy.TelemetryOptions{
 				ApplicationID: "azs3-proxy/" + version.Version,
 			},

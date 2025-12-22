@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean docker-build run stop test-app
+.PHONY: all build test lint clean docker-build run stop test-app collector
 
 # Build variables
 BINARY_NAME=azs3-proxy
@@ -62,3 +62,19 @@ update-coverage:
 	sed -i "s/coverage-[0-9.]*%25-[a-z]*/coverage-$$COVERAGE%25-$$COLOR/" README.md
 
 pre-commit: lint test update-coverage
+
+collector:
+	@echo "Starting OpenTelemetry Collector..."
+	@docker rm -f otel-collector 2>/dev/null || true
+	@if [ -f .env ]; then \
+		echo "Loading .env file..."; \
+		export $$(grep -v '^#' .env | xargs); \
+	fi; \
+	docker run -d --name otel-collector \
+		-p 4317:4317 \
+		-p 4318:4318 \
+		-p 55679:55679 \
+		-e AZURE_MONITOR_CONNECTION_STRING="$${AZURE_MONITOR_CONNECTION_STRING}" \
+		-v $$(pwd)/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml \
+		otel/opentelemetry-collector-contrib:latest
+	@echo "Collector started. View logs with: docker logs -f otel-collector"

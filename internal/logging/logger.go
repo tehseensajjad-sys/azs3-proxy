@@ -212,3 +212,17 @@ func (l *Logger) GetZapLogger() *zap.Logger {
 func (l *Logger) Sync() error {
 	return l.logger.Sync()
 }
+
+// WithCore returns a new Logger with the given core added to the existing logger
+func (l *Logger) WithCore(core zapcore.Core) *Logger {
+	newLogger := l.logger.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+		return zapcore.NewTee(c, core)
+	}))
+
+	return &Logger{
+		logger:      newLogger,
+		level:       l.level,
+		programName: l.programName,
+		pid:         l.pid,
+	}
+}

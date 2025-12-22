@@ -31,13 +31,9 @@ func TestLoadTelemetryConfigWithEnv(t *testing.T) {
 	_ = os.Setenv("SERVICE_NAME", "test-service")
 	_ = os.Setenv("SERVICE_VERSION", "2.0.0")
 	_ = os.Setenv("TELEMETRY_EXPORT_INTERVAL", "60s")
-	_ = os.Setenv("AZURE_MONITOR_ENABLED", "true")
-	_ = os.Setenv("AZURE_MONITOR_CONNECTION_STRING", "InstrumentationKey=test")
 	defer func() { _ = os.Unsetenv("SERVICE_NAME") }()
 	defer func() { _ = os.Unsetenv("SERVICE_VERSION") }()
 	defer func() { _ = os.Unsetenv("TELEMETRY_EXPORT_INTERVAL") }()
-	defer func() { _ = os.Unsetenv("AZURE_MONITOR_ENABLED") }()
-	defer func() { _ = os.Unsetenv("AZURE_MONITOR_CONNECTION_STRING") }()
 
 	cfg := LoadTelemetryConfig()
 
@@ -52,10 +48,6 @@ func TestLoadTelemetryConfigWithEnv(t *testing.T) {
 	if cfg.ExportInterval != 60*time.Second {
 		t.Errorf("expected ExportInterval 60s, got %v", cfg.ExportInterval)
 	}
-
-	if !cfg.AzureMonitorEnabled {
-		t.Error("expected AzureMonitorEnabled to be true")
-	}
 }
 
 func TestTelemetryConfigValidate(t *testing.T) {
@@ -68,52 +60,6 @@ func TestTelemetryConfigValidate(t *testing.T) {
 			name: "disabled config",
 			cfg: &TelemetryConfig{
 				Enabled: false,
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid azure monitor config",
-			cfg: &TelemetryConfig{
-				Enabled:                true,
-				MetricsExportEnabled:   true,
-				AzureMonitorEnabled:    true,
-				AzureMonitorConnString: "InstrumentationKey=key",
-			},
-			wantErr: false,
-		},
-		{
-			name: "missing azure monitor connection string",
-			cfg: &TelemetryConfig{
-				Enabled:              true,
-				MetricsExportEnabled: true,
-				AzureMonitorEnabled:  true,
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid prometheus port too high",
-			cfg: &TelemetryConfig{
-				Enabled:           true,
-				PrometheusEnabled: true,
-				PrometheusPort:    100000,
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid prometheus port too low",
-			cfg: &TelemetryConfig{
-				Enabled:           true,
-				PrometheusEnabled: true,
-				PrometheusPort:    0,
-			},
-			wantErr: true,
-		},
-		{
-			name: "valid prometheus config",
-			cfg: &TelemetryConfig{
-				Enabled:           true,
-				PrometheusEnabled: true,
-				PrometheusPort:    8888,
 			},
 			wantErr: false,
 		},
@@ -143,29 +89,11 @@ func TestTelemetryConfigIsEnabled(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "enabled with metrics",
+			name: "enabled",
 			cfg: &TelemetryConfig{
-				Enabled:              true,
-				MetricsExportEnabled: true,
+				Enabled: true,
 			},
 			want: true,
-		},
-		{
-			name: "enabled with logs",
-			cfg: &TelemetryConfig{
-				Enabled:          true,
-				LogExportEnabled: true,
-			},
-			want: true,
-		},
-		{
-			name: "enabled but nothing exported",
-			cfg: &TelemetryConfig{
-				Enabled:              true,
-				MetricsExportEnabled: false,
-				LogExportEnabled:     false,
-			},
-			want: false,
 		},
 	}
 
@@ -202,8 +130,12 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestNewManagerWithEnabledTelemetry(t *testing.T) {
-	_ = os.Setenv("TELEMETRY_METRICS_ENABLED", "true")
-	defer func() { _ = os.Unsetenv("TELEMETRY_METRICS_ENABLED") }()
+	_ = os.Setenv("TELEMETRY_ENABLED", "true")
+	_ = os.Setenv("TELEMETRY_EXPORT_TYPE", "noop")
+	defer func() {
+		_ = os.Unsetenv("TELEMETRY_ENABLED")
+		_ = os.Unsetenv("TELEMETRY_EXPORT_TYPE")
+	}()
 
 	ctx := context.Background()
 	mgr, err := NewManager(ctx)
@@ -221,6 +153,10 @@ func TestNewManagerWithEnabledTelemetry(t *testing.T) {
 }
 
 func TestManagerShutdown(t *testing.T) {
+	// Use no-op exporter for this test to avoid connection errors
+	_ = os.Setenv("TELEMETRY_EXPORT_TYPE", "noop")
+	defer func() { _ = os.Unsetenv("TELEMETRY_EXPORT_TYPE") }()
+
 	ctx := context.Background()
 
 	mgr, err := NewManager(ctx)

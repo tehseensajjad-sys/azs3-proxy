@@ -6,12 +6,16 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/otel/metric"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Manager manages the lifecycle of telemetry components
 type Manager struct {
 	cfg             *TelemetryConfig
 	meterProvider   metric.MeterProvider
+	tracerProvider  *sdktrace.TracerProvider
+	loggerProvider  *sdklog.LoggerProvider
 	metricsProvider *MetricsProvider
 	shutdownOnce    sync.Once
 	shutdownErr     error
@@ -37,6 +41,21 @@ func NewManager(ctx context.Context) (*Manager, error) {
 		return nil, fmt.Errorf("failed to initialize meter provider: %w", err)
 	}
 
+	// Initialize tracer provider
+	var tracerProvider *sdktrace.TracerProvider
+	var loggerProvider *sdklog.LoggerProvider
+	if cfg.Enabled {
+		tracerProvider, err = InitializeTracerProvider(ctx, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize tracer provider: %w", err)
+		}
+
+		loggerProvider, err = InitializeLoggerProvider(ctx, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize logger provider: %w", err)
+		}
+	}
+
 	// Initialize metrics provider
 	metricsProvider, err := NewMetricsProvider(ctx, meterProvider)
 	if err != nil {
@@ -46,6 +65,8 @@ func NewManager(ctx context.Context) (*Manager, error) {
 	manager := &Manager{
 		cfg:             cfg,
 		meterProvider:   meterProvider,
+		tracerProvider:  tracerProvider,
+		loggerProvider:  loggerProvider,
 		metricsProvider: metricsProvider,
 	}
 
@@ -77,6 +98,26 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 
 		if sdkProvider, ok := m.meterProvider.(interface{ Shutdown(context.Context) error }); ok {
 			err = sdkProvider.Shutdown(ctx)
+		}
+
+		if m.tracerProvider != nil {
+			if e := m.tracerProvider.Shutdown(ctx); e != nil {
+				if err == nil {
+					err = e
+				} else {
+					err = fmt.Errorf("meter shutdown: %v; tracer shutdown: %v", err, e)
+				}
+			}
+		}
+
+		if m.loggerProvider != nil {
+			if e := m.loggerProvider.Shutdown(ctx); e != nil {
+				if err == nil {
+					err = e
+				} else {
+					err = fmt.Errorf("previous shutdown error: %v; logger shutdown: %v", err, e)
+				}
+			}
 		}
 	})
 	m.shutdownErr = err

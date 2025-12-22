@@ -37,3 +37,28 @@ func TestNewMetricsProvider(t *testing.T) {
 		t.Error("CacheHitsTotal is nil")
 	}
 }
+
+func TestNoOpExporter(t *testing.T) {
+	e := &noOpExporter{}
+	ctx := context.Background()
+
+	if err := e.ForceFlush(ctx); err != nil {
+		t.Errorf("ForceFlush failed: %v", err)
+	}
+
+	if err := e.Shutdown(ctx); err != nil {
+		t.Errorf("Shutdown failed: %v", err)
+	}
+
+	if err := e.Export(ctx, nil); err != nil {
+		t.Errorf("Export failed: %v", err)
+	}
+
+	if e.Temporality(0) != 1 { // metricdata.CumulativeTemporality is 1
+		t.Error("Temporality should be Cumulative")
+	}
+
+	if e.Aggregation(0) != nil {
+		t.Error("Aggregation should be nil")
+	}
+}

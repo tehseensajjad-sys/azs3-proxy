@@ -15,7 +15,11 @@ SCRIPTS = {
     "10": ("Create Directory", "create_directory.py"),
     "11": ("Delete Directory", "delete_directory.py"),
     "12": ("Rename Directory", "rename_directory.py"),
-    "13": ("Run Comprehensive Test", "client.py"),
+    "13": ("List Objects", "list_objects.py"),
+    "14": ("Get File Properties", "get_file_properties.py"),
+    "15": ("Get Folder Properties", "get_folder_properties.py"),
+    "16": ("Get Bucket Properties", "get_bucket_properties.py"),
+    "17": ("Run Comprehensive Test", "client.py"),
 }
 
 def print_menu():

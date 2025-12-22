@@ -9,8 +9,8 @@ This document outlines the pending tasks, improvements, and future features for 
 - **P3**: Low Priority / Nice to have
 
 ## 1. Telemetry & Observability
-- [ ] **[P2] Distributed Tracing**: Implement OpenTelemetry Tracing (Spans) for HTTP requests, backend calls, and cache operations. Currently, only Metrics are supported.
-- [ ] **[P2] Structured Logging Export**: Implement OTLP log exporter to send logs to collectors/backends instead of just writing to stdout via Zap.
+- [x] **[P2] Distributed Tracing**: Implement OpenTelemetry Tracing (Spans) for HTTP requests, backend calls, and cache operations.
+- [x] **[P2] Structured Logging Export**: Implement OTLP log exporter to send logs to collectors/backends instead of just writing to stdout via Zap.
 - [ ] **[P3] Telemetry Integration Tests**: Add tests to verify metrics are actually being emitted to the configured exporters.
 
 ## 2. S3 Compatibility & Features

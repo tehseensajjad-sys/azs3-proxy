@@ -98,6 +98,8 @@ func TestAzureBlobBackendOperations(t *testing.T) {
 	// They will fail with invalid credentials, but should not panic
 	_, _ = backend.ListBuckets(ctx)
 	_, _ = backend.ListObjects(ctx, "bucket", "prefix")
+	_, _ = backend.HeadBucket(ctx, "bucket")
+	_ = backend.Close()
 	_ = backend.CreateBucket(ctx, "bucket")
 	_ = backend.DeleteBucket(ctx, "bucket")
 	_, _ = backend.HeadObject(ctx, "bucket", "key")

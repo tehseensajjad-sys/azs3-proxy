@@ -205,6 +205,9 @@ func (s *S3ProxyServer) registerRoutes() {
 	// Delete bucket
 	s.router.Delete("/{bucket}", s3Handler.DeleteBucketHandler)
 
+	// Head bucket
+	s.router.Head("/{bucket}", s3Handler.HeadBucketHandler)
+
 	// Bucket operations: POST (DeleteObjects)
 	s.router.Post("/{bucket}", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Has("delete") {

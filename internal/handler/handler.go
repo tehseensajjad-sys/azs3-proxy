@@ -153,6 +153,28 @@ func (h *S3Handler) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(xmlData)
 }
 
+// HeadBucketHandler handles HEAD /{bucket} (S3 HeadBucket operation).
+// Checks if a bucket exists and if the user has permission to access it.
+func (h *S3Handler) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	h.logger.Debug("HeadBucket request", zap.String("bucket", bucket))
+
+	exists, err := h.backend.HeadBucket(r.Context(), bucket)
+	if err != nil {
+		h.logger.Error("failed to check bucket existence", zap.Error(err))
+		// If error is not 404, return 500
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if !exists {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 // CreateBucketHandler handles PUT /{bucket} (S3 CreateBucket operation).
 // Creates a new bucket with the specified name.
 func (h *S3Handler) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
