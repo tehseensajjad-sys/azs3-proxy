@@ -273,26 +273,6 @@ func TestParseBool(t *testing.T) {
 	}
 }
 
-func TestParseInt(t *testing.T) {
-	tests := []struct {
-		value        string
-		defaultValue int
-		expected     int
-	}{
-		{"100", 0, 100},
-		{"", 50, 50},
-		{"invalid", 75, 75},
-		{"0", 100, 0},
-	}
-
-	for _, tt := range tests {
-		got := parseInt(tt.value, tt.defaultValue)
-		if got != tt.expected {
-			t.Errorf("parseInt(%q, %d) = %d, expected %d", tt.value, tt.defaultValue, got, tt.expected)
-		}
-	}
-}
-
 func TestParseDuration(t *testing.T) {
 	tests := []struct {
 		value        string

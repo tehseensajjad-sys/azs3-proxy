@@ -34,6 +34,7 @@ func InitializeTracerProvider(ctx context.Context, cfg *TelemetryConfig) (*sdktr
 			otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint),
 		}
 
+		// Check for insecure mode via environment variable
 		if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" {
 			opts = append(opts, otlptracegrpc.WithInsecure())
 		}

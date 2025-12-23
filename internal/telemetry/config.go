@@ -8,17 +8,14 @@ import (
 
 // TelemetryConfig holds OpenTelemetry configuration
 type TelemetryConfig struct {
-	Enabled        bool
-	ServiceName    string
-	ServiceVersion string
-	Environment    string
-	ExportType     string
-	ExportInterval time.Duration
-	OTLPEndpoint   string
-	LogLevel       string
-	BatchSize      int
-	ExportTimeout  time.Duration
-	MaxQueueSize   int
+	Enabled        bool          // Whether telemetry is enabled
+	ServiceName    string        // Name of the service for tracing/metrics
+	ServiceVersion string        // Version of the service
+	Environment    string        // Deployment environment (e.g., production, development)
+	ExportType     string        // Type of exporter to use (e.g., "otlp", "noop")
+	ExportInterval time.Duration // Interval for exporting metrics
+	OTLPEndpoint   string        // Endpoint for OTLP exporter (e.g., localhost:4317)
+	LogLevel       string        // Log level for telemetry
 }
 
 // LoadTelemetryConfig loads configuration from environment
@@ -32,9 +29,6 @@ func LoadTelemetryConfig() *TelemetryConfig {
 		ExportInterval: parseDuration(os.Getenv("TELEMETRY_EXPORT_INTERVAL"), 30*time.Second),
 		OTLPEndpoint:   getOrDefault(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"), "localhost:4317"),
 		LogLevel:       getOrDefault(os.Getenv("TELEMETRY_LOG_LEVEL"), "info"),
-		BatchSize:      parseInt(os.Getenv("TELEMETRY_BATCH_SIZE"), 512),
-		ExportTimeout:  parseDuration(os.Getenv("TELEMETRY_EXPORT_TIMEOUT"), 30*time.Second),
-		MaxQueueSize:   parseInt(os.Getenv("TELEMETRY_MAX_QUEUE_SIZE"), 2048),
 	}
 }
 
@@ -69,17 +63,6 @@ func parseBool(value string, defaultValue bool) bool {
 		return defaultValue
 	}
 	return b
-}
-
-func parseInt(value string, defaultValue int) int {
-	if value == "" {
-		return defaultValue
-	}
-	i, err := strconv.Atoi(value)
-	if err != nil {
-		return defaultValue
-	}
-	return i
 }
 
 func parseDuration(value string, defaultValue time.Duration) time.Duration {

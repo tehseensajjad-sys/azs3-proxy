@@ -45,7 +45,7 @@ func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger, t
 	s.auth = auth.NewAuthVerifier(cfg.S3AccessKeyID, cfg.S3SecretAccessKey)
 
 	// Initialize the Azure Blob Storage backend with configured authentication method
-	backendImpl, err := azureblob.NewAzureBlobBackendWithAuth(cfg.AzureAuth, logger)
+	backendImpl, err := azureblob.NewAzureBlobBackendWithAuth(cfg.AzureAuth, logger, telMgr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize azure blob backend: %w", err)
 	}
@@ -98,6 +98,7 @@ func (s *S3ProxyServer) authMiddleware(next http.Handler) http.Handler {
 		s.logger.Debug("processing request",
 			zap.String("method", r.Method),
 			zap.String("path", r.URL.Path),
+			zap.String("direction", "inbound"),
 			zap.String("query", r.URL.RawQuery),
 			zap.String("remote_addr", r.RemoteAddr))
 

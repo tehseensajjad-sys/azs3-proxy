@@ -8,6 +8,10 @@ receivers:
 
 processors:
   batch:
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 2s
+    override: false
 
 exporters:
   debug:
@@ -19,13 +23,13 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resourcedetection, batch]
       exporters: [debug, azuremonitor]
     metrics:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resourcedetection, batch]
       exporters: [debug, azuremonitor]
     logs:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resourcedetection, batch]
       exporters: [debug, azuremonitor]

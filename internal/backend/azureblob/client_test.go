@@ -62,7 +62,7 @@ func TestNewAzureBlobBackendWithAuth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewAzureBlobBackendWithAuth(tt.authConfig, logger)
+			_, err := NewAzureBlobBackendWithAuth(tt.authConfig, logger, nil)
 			if err != nil {
 				t.Logf("Backend creation returned error (might be expected): %v", err)
 			}
@@ -81,7 +81,7 @@ func TestAzureBlobBackendOperations(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger)
+	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger, nil)
 	if err != nil {
 		t.Logf("Backend creation failed (expected for test): %v", err)
 		return
@@ -120,7 +120,7 @@ func TestAzureBlobBackendContextHandling(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger)
+	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger, nil)
 	if err != nil {
 		t.Logf("Backend creation failed (expected for test): %v", err)
 		return
@@ -151,7 +151,7 @@ func TestMultipartUploadFlow(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger)
+	backend, err := NewAzureBlobBackendWithAuth(authConfig, logger, nil)
 	if err != nil {
 		t.Logf("Backend creation failed (expected for test): %v", err)
 		// Expected to fail in test environment - we don't have real Azure credentials

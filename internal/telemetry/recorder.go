@@ -13,8 +13,10 @@ func (m *Manager) RecordS3Request(ctx context.Context, operation string, success
 		return
 	}
 
+	method := inferMethod(operation)
 	attrs := []attribute.KeyValue{
 		attribute.String("operation", operation),
+		attribute.String("method", method),
 	}
 
 	// Record total requests
@@ -29,6 +31,23 @@ func (m *Manager) RecordS3Request(ctx context.Context, operation string, success
 				append(attrs, attribute.String("error_type", errorType))...,
 			))
 		}
+	}
+}
+
+func inferMethod(op string) string {
+	switch op {
+	case "GetObject", "ListBuckets", "ListObjects", "ListObjectsV2", "ListParts", "ListMultipartUploads", "GetBucketVersioning", "GetObjectVersion", "ListObjectVersions":
+		return "GET"
+	case "PutObject", "CreateBucket", "UploadPart", "CopyObject", "PutBucketVersioning":
+		return "PUT"
+	case "DeleteObject", "DeleteBucket", "AbortMultipartUpload", "DeleteObjectVersion":
+		return "DELETE"
+	case "HeadObject", "HeadBucket":
+		return "HEAD"
+	case "InitiateMultipartUpload", "CompleteMultipartUpload":
+		return "POST"
+	default:
+		return "UNKNOWN"
 	}
 }
 
@@ -83,4 +102,22 @@ func (m *Manager) RecordCacheOperation(ctx context.Context, opType string) {
 	m.metricsProvider.CacheOperationsTotal.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("type", opType),
 	))
+}
+
+// RecordAzureRequest records Azure Blob Storage request metrics
+func (m *Manager) RecordAzureRequest(ctx context.Context, operation string, success bool, errorType string) {
+	if !m.IsEnabled() || m.metricsProvider == nil {
+		return
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String("operation", operation),
+	}
+
+	// Record total requests
+	m.metricsProvider.AzureRequestsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+
+	if !success {
+		m.metricsProvider.AzureRequestsErrors.Add(ctx, 1, metric.WithAttributes(attrs...))
+	}
 }

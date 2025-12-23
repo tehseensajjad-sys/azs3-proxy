@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"go.opentelemetry.io/contrib/instrumentation/host"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/metric"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -60,6 +62,16 @@ func NewManager(ctx context.Context) (*Manager, error) {
 	metricsProvider, err := NewMetricsProvider(ctx, meterProvider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize metrics provider: %w", err)
+	}
+
+	// Start runtime metrics collection (CPU, Memory, GC, Goroutines)
+	if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
+		return nil, fmt.Errorf("failed to start runtime metrics: %w", err)
+	}
+
+	// Start host metrics collection (CPU, Memory, Network)
+	if err := host.Start(host.WithMeterProvider(meterProvider)); err != nil {
+		return nil, fmt.Errorf("failed to start host metrics: %w", err)
 	}
 
 	manager := &Manager{

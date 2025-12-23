@@ -30,6 +30,10 @@ type MetricsProvider struct {
 	CacheEvictionsTotal   metric.Int64Counter
 	CacheExpirationsTotal metric.Int64Counter
 	CacheOperationsTotal  metric.Int64Counter
+
+	// Azure Backend Metrics
+	AzureRequestsTotal  metric.Int64Counter
+	AzureRequestsErrors metric.Int64Counter
 }
 
 // NewMetricsProvider creates all metric instruments
@@ -126,6 +130,25 @@ func NewMetricsProvider(ctx context.Context, meterProvider metric.MeterProvider)
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CacheOperationsTotal: %w", err)
+	}
+
+	// Azure Backend Metrics
+	mp.AzureRequestsTotal, err = meter.Int64Counter(
+		"backend_requests_total",
+		metric.WithDescription("Total Backend Storage requests"),
+		metric.WithUnit("{requests}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AzureRequestsTotal: %w", err)
+	}
+
+	mp.AzureRequestsErrors, err = meter.Int64Counter(
+		"backend_requests_errors_total",
+		metric.WithDescription("Failed Backend Storage requests"),
+		metric.WithUnit("{errors}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AzureRequestsErrors: %w", err)
 	}
 
 	return mp, nil

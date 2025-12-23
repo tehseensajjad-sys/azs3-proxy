@@ -21,7 +21,31 @@ The azs3-proxy supports comprehensive metrics and logging export via OpenTelemet
 
 Attributes:
 - `operation`: S3 operation name (e.g., "GetObject", "PutObject")
+- `method`: HTTP method (e.g., "GET", "PUT")
 - `error_type`: Error type when request fails (e.g., "AccessDenied", "NoSuchKey")
+
+### Azure Backend Metrics
+- `azure_requests_total` - Total requests sent to Azure Blob Storage (counter)
+- `azure_requests_errors_total` - Failed Azure Blob Storage requests (counter)
+
+Attributes:
+- `operation`: Azure operation name (e.g., "PutObject", "ListBuckets")
+- `error_type`: Azure error code (e.g., "BlobNotFound")
+
+### Runtime Metrics (Go)
+Standard Go runtime metrics are exported automatically:
+- `process.runtime.go.goroutines` - Number of goroutines
+- `process.runtime.go.mem.heap_alloc` - Bytes of allocated heap objects
+- `process.runtime.go.mem.heap_sys` - Bytes of heap memory obtained from the OS
+- `process.runtime.go.gc.pause_ns` - GC pause duration
+- And many more...
+
+### HTTP Server Metrics
+Standard HTTP server metrics provided by `otelhttp`:
+- `http.server.request.duration` - Duration of HTTP requests
+- `http.server.request.body.size` - Size of HTTP request bodies
+- `http.server.response.body.size` - Size of HTTP response bodies
+- `http.server.active_requests` - Number of active HTTP requests
 
 ### Cache Metrics
 - `cache_hits_total` - Total cache hits (counter)
@@ -51,16 +75,13 @@ ENVIRONMENT=production                              # Default: development
 # Export configuration
 TELEMETRY_EXPORT_TYPE=otlp                        # Default: otlp
 TELEMETRY_EXPORT_INTERVAL=30s                       # Default: 30s
-TELEMETRY_EXPORT_TIMEOUT=30s                        # Default: 30s
 
 # OTLP Configuration (OpenTelemetry Protocol)
 OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317          # Default: localhost:4317
-OTEL_EXPORTER_OTLP_HEADERS=                         # Optional headers
+OTEL_EXPORTER_OTLP_INSECURE=true                    # Default: false (use TLS)
 
 # Advanced configuration
 TELEMETRY_LOG_LEVEL=info                            # Default: info
-TELEMETRY_BATCH_SIZE=512                            # Default: 512
-TELEMETRY_MAX_QUEUE_SIZE=2048                       # Default: 2048
 ```
 
 ## OTLP Integration (OpenTelemetry Protocol)
@@ -71,6 +92,72 @@ For OTLP exporters (Jaeger, Tempo, etc.):
 export TELEMETRY_ENABLED=true
 export OTEL_EXPORTER_OTLP_ENDPOINT=your-otel-collector:4317
 ```
+
+## Azure Application Insights Integration
+
+To send telemetry to Azure Application Insights, it is recommended to use the **OpenTelemetry Collector** as a bridge. This allows you to send data to multiple destinations (e.g., a local log collector and Azure App Insights) simultaneously without modifying the application code.
+
+### Architecture
+
+```
+[azs3-proxy]  -->  [OTel Collector]  -->  [Azure Application Insights]
+                                     -->  [Other Log Collector (Splunk/ELK)]
+```
+
+### Configuration Steps
+
+1.  **Deploy OpenTelemetry Collector**: Run the OTel Collector as a sidecar or standalone service.
+2.  **Configure Collector**: Add the `azuremonitor` exporter to your collector configuration.
+
+```yaml
+# otel-collector-config.yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+
+exporters:
+  azuremonitor:
+    connection_string: "InstrumentationKey=...;IngestionEndpoint=..."
+  logging:
+    loglevel: debug
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [azuremonitor, logging]
+    metrics:
+      receivers: [otlp]
+      exporters: [azuremonitor, logging]
+    logs:
+      receivers: [otlp]
+      exporters: [azuremonitor, logging]
+```
+
+3.  **Configure Proxy**: Point the proxy to your local collector.
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
+export OTEL_EXPORTER_OTLP_INSECURE=true
+```
+
+## Visualization with Azure Managed Grafana
+
+Yes, once your metrics are in Azure Application Insights (Azure Monitor), you can easily visualize them in **Azure Managed Grafana**.
+
+### Setup Steps
+
+1.  **Create Azure Managed Grafana**: Provision an instance from the Azure Portal.
+2.  **Grant Permissions**: Ensure the Grafana Managed Identity has the **Monitoring Reader** role on your Application Insights resource.
+3.  **Add Data Source**:
+    *   In Grafana, go to **Configuration > Data Sources**.
+    *   Add **Azure Monitor**.
+    *   Select your Subscription and the Application Insights resource where metrics are being sent.
+4.  **Create Dashboards**:
+    *   You can now query metrics like `s3_requests_total` or `azure_requests_total`.
+    *   Since these are custom metrics, they will appear under the `azure.applicationinsights` namespace or as custom log-based metrics depending on ingestion.
 
 ## Usage Example
 

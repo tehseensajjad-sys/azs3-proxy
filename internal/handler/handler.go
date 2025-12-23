@@ -155,6 +155,7 @@ func (h *S3Handler) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 
 // HeadBucketHandler handles HEAD /{bucket} (S3 HeadBucket operation).
 // Checks if a bucket exists and if the user has permission to access it.
+// Returns 200 OK if bucket exists, 404 Not Found if it doesn't.
 func (h *S3Handler) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	h.logger.Debug("HeadBucket request", zap.String("bucket", bucket))

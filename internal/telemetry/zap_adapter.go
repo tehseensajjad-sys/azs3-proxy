@@ -45,24 +45,43 @@ func (c *OtelZapCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	r.SetSeverityText(ent.Level.String())
 	r.SetBody(log.StringValue(ent.Message))
 
-	// Add attributes
-	// We need to convert zap fields to OTel KeyValues
-	// For simplicity, we'll just handle basic types or ignore complex ones for now
-	// A full implementation would use a proper encoder
+	// Convert zap fields to OTel attributes
+	var attrs []log.KeyValue
 
-	// This is a simplified implementation.
-	// In a real-world scenario, you'd want to properly encode all fields.
+	// Add fields from the core
+	for _, f := range c.fields {
+		attrs = append(attrs, zapFieldToOtelAttr(f))
+	}
 
-	// We can't easily convert all zap fields here without an encoder.
-	// But we can at least send the message and severity.
+	// Add fields from the entry
+	for _, f := range fields {
+		attrs = append(attrs, zapFieldToOtelAttr(f))
+	}
 
-	// To properly support fields, we would need to implement a zapcore.ObjectEncoder
-	// that writes to OTel attributes. That's quite a bit of code.
+	r.AddAttributes(attrs...)
 
-	// For now, let's just emit the log record.
 	c.logger.Emit(context.Background(), r)
 
 	return nil
+}
+
+func zapFieldToOtelAttr(f zapcore.Field) log.KeyValue {
+	switch f.Type {
+	case zapcore.StringType:
+		return log.String(f.Key, f.String)
+	case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type:
+		return log.Int64(f.Key, f.Integer)
+	case zapcore.BoolType:
+		return log.Bool(f.Key, f.Integer == 1)
+	case zapcore.ErrorType:
+		if err, ok := f.Interface.(error); ok {
+			return log.String(f.Key, err.Error())
+		}
+		return log.String(f.Key, "<error>")
+	default:
+		// Fallback for other types
+		return log.String(f.Key, "unsupported_type")
+	}
 }
 
 func (c *OtelZapCore) Sync() error {

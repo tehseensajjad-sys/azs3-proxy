@@ -3,7 +3,7 @@
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)]()
 [![Language: Go](https://img.shields.io/badge/language-Go-blue)]()
 [![Tests](https://img.shields.io/github/actions/workflow/status/vibhansa-msft/s3-azure-proxy/tests.yml?branch=main&label=tests)](https://github.com/vibhansa-msft/s3-azure-proxy/actions)
-[![Coverage](https://img.shields.io/badge/coverage-74.4%25-yellow)]()
+[![Coverage](https://img.shields.io/badge/coverage-74.3%25-yellow)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/vibhansa-msft/s3-azure-proxy/blob/main/LICENSE)
 
 S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage using Azure Go SDK. Enables S3 clients to work with Azure Blob as backend.
@@ -84,8 +84,8 @@ S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
 # Logging & Telemetry
 LOG_LEVEL=info
 TELEMETRY_ENABLED=true
-AZURE_MONITOR_ENABLED=true
-AZURE_MONITOR_CONNECTION_STRING="InstrumentationKey=..."
+OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
+OTEL_EXPORTER_OTLP_INSECURE=true
 ```
 
 ### Running
