@@ -20,11 +20,11 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/logging"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/server"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/version"
+	"github.com/vibhansa-msft/azs3-proxy/internal/config"
+	"github.com/vibhansa-msft/azs3-proxy/internal/logging"
+	"github.com/vibhansa-msft/azs3-proxy/internal/server"
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
+	"github.com/vibhansa-msft/azs3-proxy/internal/version"
 )
 
 var (
