@@ -166,7 +166,7 @@ package main
 
 import (
 	"context"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
 
 func main() {

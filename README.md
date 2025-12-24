@@ -2,9 +2,9 @@
 
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)]()
 [![Language: Go](https://img.shields.io/badge/language-Go-blue)]()
-[![Tests](https://img.shields.io/github/actions/workflow/status/vibhansa-msft/s3-azure-proxy/tests.yml?branch=main&label=tests)](https://github.com/vibhansa-msft/s3-azure-proxy/actions)
+[![Tests](https://img.shields.io/github/actions/workflow/status/vibhansa-msft/azs3-proxy/tests.yml?branch=main&label=tests)](https://github.com/vibhansa-msft/azs3-proxy/actions)
 [![Coverage](https://img.shields.io/badge/coverage-74.3%25-yellow)]()
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/vibhansa-msft/s3-azure-proxy/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/vibhansa-msft/azs3-proxy/blob/main/LICENSE)
 
 S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage using Azure Go SDK. Enables S3 clients to work with Azure Blob as backend.
 
@@ -59,7 +59,7 @@ For detailed information about metrics, logging, and observability configuration
 ### Installation
 
 ```bash
-git clone https://github.com/vibhansa-msft/s3-azure-proxy.git
+git clone https://github.com/vibhansa-msft/azs3-proxy.git
 cd azs3-proxy
 go mod download
 go build -o bin/azs3-proxy ./cmd/proxy
@@ -523,7 +523,7 @@ MIT License – see [LICENSE](LICENSE) file for details.
 
 For issues, questions, or suggestions:
 
-- Open an [issue](https://github.com/vibhansa-msft/s3-azure-proxy/issues)
-- Check existing [discussions](https://github.com/vibhansa-msft/s3-azure-proxy/discussions)
+- Open an [issue](https://github.com/vibhansa-msft/azs3-proxy/issues)
+- Check existing [discussions](https://github.com/vibhansa-msft/azs3-proxy/discussions)
 - Review [contributing guide](CONTRIBUTING.md)
 

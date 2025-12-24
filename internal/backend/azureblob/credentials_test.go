@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
+	"github.com/vibhansa-msft/azs3-proxy/internal/config"
 	"go.uber.org/zap"
 )
 

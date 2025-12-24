@@ -6,7 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
+	"github.com/vibhansa-msft/azs3-proxy/internal/config"
 )
 
 func TestNewS3ProxyServer(t *testing.T) {

@@ -8,13 +8,13 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/auth"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/backend"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/backend/azureblob"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/cache"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/handler"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
+	"github.com/vibhansa-msft/azs3-proxy/internal/auth"
+	"github.com/vibhansa-msft/azs3-proxy/internal/backend"
+	"github.com/vibhansa-msft/azs3-proxy/internal/backend/azureblob"
+	"github.com/vibhansa-msft/azs3-proxy/internal/cache"
+	"github.com/vibhansa-msft/azs3-proxy/internal/config"
+	"github.com/vibhansa-msft/azs3-proxy/internal/handler"
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
 
 // S3ProxyServer represents the HTTP server that proxies S3 API requests to Azure Blob Storage.

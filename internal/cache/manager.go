@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
 
 // CacheManager manages cached objects by wrapping the LRUCache and providing

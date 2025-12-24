@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
 
 // CacheEntry represents a single cached item with metadata.

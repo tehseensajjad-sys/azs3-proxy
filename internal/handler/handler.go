@@ -14,10 +14,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/backend"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/cache"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/models"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
+	"github.com/vibhansa-msft/azs3-proxy/internal/backend"
+	"github.com/vibhansa-msft/azs3-proxy/internal/cache"
+	"github.com/vibhansa-msft/azs3-proxy/internal/models"
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
 
 // S3Handler handles all S3 API requests and converts them to backend storage operations.

@@ -19,7 +19,7 @@ type OtelZapCore struct {
 func NewOtelZapCore(enabler zapcore.LevelEnabler) *OtelZapCore {
 	return &OtelZapCore{
 		LevelEnabler: enabler,
-		logger:       global.Logger("github.com/vibhansa-msft/s3-azure-proxy"),
+		logger:       global.Logger("github.com/vibhansa-msft/azs3-proxy"),
 	}
 }
 

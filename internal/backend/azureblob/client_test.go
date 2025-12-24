@@ -10,7 +10,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
+	"github.com/vibhansa-msft/azs3-proxy/internal/config"
 	"go.uber.org/zap"
 )
 

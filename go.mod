@@ -1,4 +1,4 @@
-module github.com/vibhansa-msft/s3-azure-proxy
+module github.com/vibhansa-msft/azs3-proxy
 
 go 1.24.0
 

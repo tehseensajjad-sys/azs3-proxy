@@ -16,9 +16,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"go.uber.org/zap"
 
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/backend"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/config"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/telemetry"
+	"github.com/vibhansa-msft/azs3-proxy/internal/backend"
+	"github.com/vibhansa-msft/azs3-proxy/internal/config"
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
 
 // readSeekCloser wraps bytes.Reader to implement io.ReadSeekCloser interface.

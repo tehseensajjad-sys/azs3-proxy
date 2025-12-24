@@ -39,7 +39,7 @@ type MetricsProvider struct {
 // NewMetricsProvider creates all metric instruments
 func NewMetricsProvider(ctx context.Context, meterProvider metric.MeterProvider) (*MetricsProvider, error) {
 	meter := meterProvider.Meter(
-		"github.com/vibhansa-msft/s3-azure-proxy",
+		"github.com/vibhansa-msft/azs3-proxy",
 		metric.WithInstrumentationVersion("1.0.0"),
 	)
 

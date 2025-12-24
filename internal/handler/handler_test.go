@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/vibhansa-msft/s3-azure-proxy/internal/cache"
+	"github.com/vibhansa-msft/azs3-proxy/internal/cache"
 	"go.uber.org/zap"
 )
 
