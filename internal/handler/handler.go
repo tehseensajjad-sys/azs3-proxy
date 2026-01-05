@@ -453,7 +453,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Not in cache or caching disabled - fetch from backend
-	body, err := h.backend.GetObject(r.Context(), bucket, key)
+	objInfo, err := h.backend.GetObject(r.Context(), bucket, key)
 	if err != nil {
 		h.logger.Error("failed to get object",
 			zap.Error(err),
@@ -473,7 +473,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		h.writeErrorResponse(w, s3Err)
 		return
 	}
-	defer func() { _ = body.Close() }()
+	defer func() { _ = objInfo.Body.Close() }()
 
 	h.logger.Info("object downloaded successfully",
 		zap.String("bucket", bucket),
@@ -485,7 +485,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	if h.cacheManager != nil {
 		var readErr error
 		// Read entire object into memory to cache it
-		objectData, readErr = io.ReadAll(body)
+		objectData, readErr = io.ReadAll(objInfo.Body)
 		if readErr != nil {
 			h.logger.Error("failed to read object for caching",
 				zap.Error(readErr),
@@ -509,7 +509,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// If caching disabled, read the object normally
 		var readErr error
-		objectData, readErr = io.ReadAll(body)
+		objectData, readErr = io.ReadAll(objInfo.Body)
 		if readErr != nil {
 			h.logger.Error("failed to read object",
 				zap.Error(readErr),
@@ -524,6 +524,12 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("ETag", "\"0\"")
+	if objInfo.Size > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", objInfo.Size))
+	}
+	if !objInfo.LastModified.IsZero() {
+		w.Header().Set("Last-Modified", objInfo.LastModified.UTC().Format(http.TimeFormat))
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(objectData)
 	h.stats.RecordGetObject(true)
@@ -535,6 +541,13 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 // HeadObjectHandler handles HEAD /{bucket}/{key}
 func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 	bucket, key := extractBucketAndKey(r)
+
+	// If key is empty, treat it as HeadBucket
+	if key == "" {
+		h.HeadBucketHandler(w, r)
+		return
+	}
+
 	h.logger.Debug("HeadObject request", zap.String("bucket", bucket), zap.String("key", key))
 
 	// If caching is enabled, check cache first
@@ -559,7 +572,7 @@ func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	exists, err := h.backend.HeadObject(r.Context(), bucket, key)
+	exists, size, lastModified, err := h.backend.HeadObject(r.Context(), bucket, key)
 	if err != nil {
 		h.logger.Error("failed to head object", zap.Error(err), zap.String("bucket", bucket), zap.String("key", key))
 		h.stats.RecordHeadObject(false)
@@ -590,7 +603,13 @@ func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		h.writeErrorResponse(w, s3Err)
 		return
 	}
-
+	// If backend provided size/lastModified, set headers for S3 compatibility
+	if size > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
+	}
+	if !lastModified.IsZero() {
+		w.Header().Set("Last-Modified", lastModified.UTC().Format(http.TimeFormat))
+	}
 	w.Header().Set("ETag", "\"0\"")
 	w.WriteHeader(http.StatusOK)
 	h.stats.RecordHeadObject(true)
@@ -657,6 +676,12 @@ func (h *S3Handler) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	uploadID := r.URL.Query().Get("uploadId")
 	if uploadID != "" {
 		h.CompleteMultipartUploadHandler(w, r)
+		return
+	}
+
+	// Check if this is a delete objects request (misrouted due to trailing slash)
+	if r.URL.Query().Has("delete") {
+		h.DeleteObjectsHandler(w, r)
 		return
 	}
 
@@ -1150,7 +1175,7 @@ func (h *S3Handler) GetObjectVersionHandler(w http.ResponseWriter, r *http.Reque
 	versionID := r.URL.Query().Get("versionId")
 	h.logger.Debug("GetObjectVersion request", zap.String("bucket", bucket), zap.String("key", key), zap.String("versionId", versionID))
 
-	reader, err := h.backend.GetObjectVersion(r.Context(), bucket, key, versionID)
+	objInfo, err := h.backend.GetObjectVersion(r.Context(), bucket, key, versionID)
 	if err != nil {
 		h.logger.Error("failed to get object version", zap.String("bucket", bucket), zap.String("key", key), zap.Error(err))
 		h.stats.RecordGetObjectVersion(false)
@@ -1167,14 +1192,18 @@ func (h *S3Handler) GetObjectVersionHandler(w http.ResponseWriter, r *http.Reque
 		h.writeErrorResponse(w, s3Err)
 		return
 	}
-	defer func() { _ = reader.Close() }()
+	defer func() { _ = objInfo.Body.Close() }()
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	if versionID != "" {
 		w.Header().Set("x-amz-version-id", versionID)
 	}
+	// If backend provided LastModified, set Last-Modified header for S3 compatibility
+	if !objInfo.LastModified.IsZero() {
+		w.Header().Set("Last-Modified", objInfo.LastModified.UTC().Format(http.TimeFormat))
+	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, reader)
+	_, _ = io.Copy(w, objInfo.Body)
 	h.stats.RecordGetObjectVersion(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "GetObjectVersion", true, "")
@@ -1235,6 +1264,9 @@ func (h *S3Handler) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request)
 
 	// Process each object deletion
 	for _, obj := range deleteReq.Objects {
+		if obj.Key == "" {
+			continue
+		}
 		var err error
 		if obj.VersionID != "" {
 			err = h.backend.DeleteObjectVersion(r.Context(), bucket, obj.Key, obj.VersionID)

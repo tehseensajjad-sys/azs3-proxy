@@ -1,0 +1,34 @@
+
+# file: rabata-mixed-1MiB.yml
+warp:
+  api: v1
+
+  # Which benchmark to run
+  benchmark: mixed            # must be a STRING: mixed / get / put / ...
+
+  # Console output formatting (optional)
+  quiet: false
+  no-color: false
+  json: false                 # if true, prints JSON to console (not to a file)
+
+  # Connection
+  region: "{{.Region}}"
+  access-key: "{{.AccessKey}}"
+  secret-key: "{{.SecretKey}}"
+  host: "{{.Host}}"           # single string, as you requested
+  tls: {{.TLS}}               # true or false (unquoted)
+
+  # Bucket used for the benchmark (WARP wipes it before/after)
+  bucket: "{{.Bucket}}"
+
+  # Result log (compressed CSV of all requests)
+  bench-data: "proxy-mixed-1MiB.csv.zst"
+
+  # Benchmark parameters
+  params:
+    duration: 300s            # 5 minutes steady state
+    concurrent: 8             # Rabata used 8 threads
+
+    obj:
+      size: 1MiB              # 1 MB objects
+      rand-size: false        # disable randomization for comparability

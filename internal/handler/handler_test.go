@@ -9,8 +9,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/vibhansa-msft/azs3-proxy/internal/backend"
 	"github.com/vibhansa-msft/azs3-proxy/internal/cache"
 	"go.uber.org/zap"
 )
@@ -22,9 +24,9 @@ type MockBackend struct {
 	DeleteBucketFunc            func(ctx context.Context, bucketName string) error
 	PutObjectFunc               func(ctx context.Context, bucketName, objectKey string, data io.Reader) error
 	CopyObjectFunc              func(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error
-	GetObjectFunc               func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error)
+	GetObjectFunc               func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error)
 	DeleteObjectFunc            func(ctx context.Context, bucketName, objectKey string) error
-	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, error)
+	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error)
 	ListObjectsFunc             func(ctx context.Context, bucketName, prefix string) ([]string, error)
 	InitiateMultipartUploadFunc func(ctx context.Context, bucketName, objectKey string) (string, error)
 	UploadPartFunc              func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error)
@@ -35,7 +37,7 @@ type MockBackend struct {
 	EnableVersioningFunc        func(ctx context.Context, bucketName string) error
 	GetVersioningFunc           func(ctx context.Context, bucketName string) (bool, error)
 	ListObjectVersionsFunc      func(ctx context.Context, bucketName, prefix string) ([]interface{}, error)
-	GetObjectVersionFunc        func(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error)
+	GetObjectVersionFunc        func(ctx context.Context, bucketName, objectKey, versionID string) (backend.ObjectInfo, error)
 	DeleteObjectVersionFunc     func(ctx context.Context, bucketName, objectKey, versionID string) error
 	HeadBucketFunc              func(ctx context.Context, bucketName string) (bool, error)
 	CloseFunc                   func() error
@@ -90,11 +92,11 @@ func (m *MockBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBuc
 	return nil
 }
 
-func (m *MockBackend) GetObject(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
+func (m *MockBackend) GetObject(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
 	if m.GetObjectFunc != nil {
 		return m.GetObjectFunc(ctx, bucketName, objectKey)
 	}
-	return io.NopCloser(bytes.NewReader([]byte("test data"))), nil
+	return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader([]byte("test data"))), LastModified: time.Now()}, nil
 }
 
 func (m *MockBackend) DeleteObject(ctx context.Context, bucketName, objectKey string) error {
@@ -104,11 +106,11 @@ func (m *MockBackend) DeleteObject(ctx context.Context, bucketName, objectKey st
 	return nil
 }
 
-func (m *MockBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, error) {
+func (m *MockBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
 	if m.HeadObjectFunc != nil {
 		return m.HeadObjectFunc(ctx, bucketName, objectKey)
 	}
-	return true, nil
+	return true, int64(len("test data")), time.Now(), nil
 }
 
 func (m *MockBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]string, error) {
@@ -187,11 +189,11 @@ func (m *MockBackend) ListObjectVersions(ctx context.Context, bucketName, prefix
 	return []interface{}{}, nil
 }
 
-func (m *MockBackend) GetObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error) {
+func (m *MockBackend) GetObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) (backend.ObjectInfo, error) {
 	if m.GetObjectVersionFunc != nil {
 		return m.GetObjectVersionFunc(ctx, bucketName, objectKey, versionID)
 	}
-	return io.NopCloser(bytes.NewReader([]byte("test data"))), nil
+	return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader([]byte("test data"))), LastModified: time.Now()}, nil
 }
 
 func (m *MockBackend) DeleteObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) error {
@@ -439,8 +441,8 @@ func TestPutObjectHandler(t *testing.T) {
 
 func TestGetObjectHandler(t *testing.T) {
 	mockBackend := &MockBackend{
-		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader([]byte("test data"))), nil
+		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
+			return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader([]byte("test data"))), LastModified: time.Now()}, nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -461,8 +463,8 @@ func TestGetObjectHandler(t *testing.T) {
 
 func TestHeadObjectHandler(t *testing.T) {
 	mockBackend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
-			return true, nil
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
+			return true, int64(9), time.Now(), nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -889,8 +891,8 @@ func TestListObjectVersionsHandler(t *testing.T) {
 // TestGetObjectVersionHandler tests retrieving a specific object version
 func TestGetObjectVersionHandler(t *testing.T) {
 	mockBackend := &MockBackend{
-		GetObjectVersionFunc: func(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader([]byte("version data"))), nil
+		GetObjectVersionFunc: func(ctx context.Context, bucketName, objectKey, versionID string) (backend.ObjectInfo, error) {
+			return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader([]byte("version data"))), LastModified: time.Now()}, nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1033,8 +1035,8 @@ func TestListObjectVersionsHandler_Error(t *testing.T) {
 // TestGetObjectVersionHandler_Error tests error handling in GetObjectVersion
 func TestGetObjectVersionHandler_Error(t *testing.T) {
 	mockBackend := &MockBackend{
-		GetObjectVersionFunc: func(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error) {
-			return nil, errors.New("version not found")
+		GetObjectVersionFunc: func(ctx context.Context, bucketName, objectKey, versionID string) (backend.ObjectInfo, error) {
+			return backend.ObjectInfo{}, errors.New("version not found")
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1171,8 +1173,8 @@ func TestDeleteBucketHandler_Error(t *testing.T) {
 // TestGetObjectHandler_Error tests error handling in GetObject
 func TestGetObjectHandler_Error(t *testing.T) {
 	mockBackend := &MockBackend{
-		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
-			return nil, errors.New("not found")
+		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
+			return backend.ObjectInfo{}, errors.New("not found")
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1241,8 +1243,8 @@ func TestDeleteObjectHandler_Error(t *testing.T) {
 // TestHeadObjectHandler_NotFound tests 404 behavior in HeadObject
 func TestHeadObjectHandler_NotFound(t *testing.T) {
 	mockBackend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
-			return false, nil
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
+			return false, 0, time.Time{}, nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1464,8 +1466,8 @@ func TestDeleteObjectHandler_Success(t *testing.T) {
 // TestHeadObjectHandler_Success tests successful object existence check
 func TestHeadObjectHandler_Success(t *testing.T) {
 	mockBackend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
-			return true, nil
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
+			return true, int64(9), time.Now(), nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1487,8 +1489,8 @@ func TestHeadObjectHandler_Success(t *testing.T) {
 // TestGetObjectHandler_Success tests successful object retrieval
 func TestGetObjectHandler_Success(t *testing.T) {
 	mockBackend := &MockBackend{
-		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader([]byte("test object data"))), nil
+		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
+			return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader([]byte("test object data"))), LastModified: time.Now()}, nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1590,8 +1592,8 @@ func TestGetObjectHandler_WithCache(t *testing.T) {
 
 	objectData := []byte("cached object data")
 	backend := &MockBackend{
-		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(objectData)), nil
+		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
+			return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader(objectData)), LastModified: time.Now()}, nil
 		},
 	}
 
@@ -1636,9 +1638,9 @@ func TestGetObjectHandler_CacheHit(t *testing.T) {
 
 	callCount := 0
 	backend := &MockBackend{
-		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
+		GetObjectFunc: func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
 			callCount++
-			return io.NopCloser(bytes.NewReader(objectData)), nil
+			return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader(objectData)), LastModified: time.Now()}, nil
 		},
 	}
 
@@ -1678,8 +1680,8 @@ func TestHeadObjectHandler_WithCache(t *testing.T) {
 	defer func() { _ = cm.Close() }()
 
 	backend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
-			return true, nil
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
+			return true, int64(9), time.Now(), nil
 		},
 	}
 
@@ -1856,9 +1858,9 @@ func TestHeadObjectHandler_CacheHit(t *testing.T) {
 	}
 
 	backend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, error) {
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
 			t.Error("Backend HeadObject should not be called on cache hit")
-			return true, nil
+			return true, int64(14), time.Now(), nil
 		},
 	}
 

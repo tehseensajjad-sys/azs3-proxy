@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,8 @@ func (r *readSeekCloser) Close() error {
 // It handles all blob operations, multipart uploads, and bucket versioning.
 type AzureBlobBackend struct {
 	client                *azblob.Client                      // Azure Blob Storage client
+	containerClients      map[string]*container.Client        // Cache for container clients
+	containerClientsMutex sync.RWMutex                        // Thread-safe access to container clients
 	multipartUploads      map[string]*MultipartUploadMetadata // Ongoing multipart uploads
 	multipartUploadsMutex sync.RWMutex                        // Thread-safe access to multipart uploads
 	versionedBuckets      map[string]bool                     // Tracks buckets with versioning enabled
@@ -55,6 +58,7 @@ type MultipartUploadMetadata struct {
 	PartETagMap     map[int]string    // Maps part number to block ID (etag equivalent)
 	Initiated       time.Time         // When the multipart upload was initiated
 	BlockBlobClient *blockblob.Client // Client for block blob operations
+	Mutex           sync.Mutex        // Mutex to protect BlockIDs and PartETagMap
 }
 
 // NewAzureBlobBackend creates an Azure Blob backend using a connection string.
@@ -67,6 +71,7 @@ func NewAzureBlobBackend(connectionString string) (*AzureBlobBackend, error) {
 
 	return &AzureBlobBackend{
 		client:           client,
+		containerClients: make(map[string]*container.Client),
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 		versionedBuckets: make(map[string]bool),
 	}, nil
@@ -136,11 +141,34 @@ func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 
 	return &AzureBlobBackend{
 		client:           client,
+		containerClients: make(map[string]*container.Client),
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 		versionedBuckets: make(map[string]bool),
 		logger:           logger,
 		telMgr:           telMgr,
 	}, nil
+}
+
+// getContainerClient returns a cached container client or creates a new one
+func (ab *AzureBlobBackend) getContainerClient(bucketName string) *container.Client {
+	ab.containerClientsMutex.RLock()
+	client, ok := ab.containerClients[bucketName]
+	ab.containerClientsMutex.RUnlock()
+	if ok {
+		return client
+	}
+
+	ab.containerClientsMutex.Lock()
+	defer ab.containerClientsMutex.Unlock()
+
+	// Double check
+	if client, ok := ab.containerClients[bucketName]; ok {
+		return client
+	}
+
+	client = ab.client.ServiceClient().NewContainerClient(bucketName)
+	ab.containerClients[bucketName] = client
+	return client
 }
 
 // ListBuckets returns all containers in the Azure Blob Storage account.
@@ -175,7 +203,7 @@ func (ab *AzureBlobBackend) ListBuckets(ctx context.Context) (buckets []string, 
 func (ab *AzureBlobBackend) HeadBucket(ctx context.Context, bucketName string) (exists bool, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "HeadBucket", err) }()
 
-	containerClient := ab.client.ServiceClient().NewContainerClient(bucketName)
+	containerClient := ab.getContainerClient(bucketName)
 	_, err = containerClient.GetProperties(ctx, nil)
 	if err != nil {
 		// Check if error is 404 Not Found
@@ -190,7 +218,7 @@ func (ab *AzureBlobBackend) HeadBucket(ctx context.Context, bucketName string) (
 func (ab *AzureBlobBackend) CreateBucket(ctx context.Context, bucketName string) (err error) {
 	defer func() { ab.recordAzureRequest(ctx, "CreateBucket", err) }()
 
-	_, err = ab.client.ServiceClient().NewContainerClient(bucketName).Create(ctx, nil)
+	_, err = ab.getContainerClient(bucketName).Create(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("create container failed: %w", err)
 	}
@@ -200,7 +228,7 @@ func (ab *AzureBlobBackend) CreateBucket(ctx context.Context, bucketName string)
 func (ab *AzureBlobBackend) DeleteBucket(ctx context.Context, bucketName string) (err error) {
 	defer func() { ab.recordAzureRequest(ctx, "DeleteBucket", err) }()
 
-	_, err = ab.client.ServiceClient().NewContainerClient(bucketName).Delete(ctx, nil)
+	_, err = ab.getContainerClient(bucketName).Delete(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("delete container failed: %w", err)
 	}
@@ -210,7 +238,15 @@ func (ab *AzureBlobBackend) DeleteBucket(ctx context.Context, bucketName string)
 func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey string, data io.Reader) (err error) {
 	defer func() { ab.recordAzureRequest(ctx, "PutObject", err) }()
 
-	_, err = ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey).UploadStream(ctx, data, nil)
+	// Tune UploadStream to reduce memory usage
+	// Default BlockSize is 8MB, Concurrency is 5.
+	// Using 8MB block size as requested, but keeping concurrency low to avoid OOM.
+	options := &blockblob.UploadStreamOptions{
+		BlockSize:   8 * 1024 * 1024, // 8MB
+		Concurrency: 2,
+	}
+
+	_, err = ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey).UploadStream(ctx, data, options)
 	if err != nil {
 		return fmt.Errorf("upload blob failed: %w", err)
 	}
@@ -226,14 +262,14 @@ func (ab *AzureBlobBackend) CopyObject(ctx context.Context, srcBucket, srcKey, d
 	// TODO: Optimize using StartCopyFromURL if possible.
 
 	// 1. Get source object stream
-	srcResp, err := ab.GetObject(ctx, srcBucket, srcKey)
+	srcInfo, err := ab.GetObject(ctx, srcBucket, srcKey)
 	if err != nil {
 		return fmt.Errorf("failed to open source object for copy: %w", err)
 	}
-	defer func() { _ = srcResp.Close() }()
+	defer func() { _ = srcInfo.Body.Close() }()
 
 	// 2. Put to destination
-	err = ab.PutObject(ctx, destBucket, destKey, srcResp)
+	err = ab.PutObject(ctx, destBucket, destKey, srcInfo.Body)
 	if err != nil {
 		return fmt.Errorf("failed to upload destination object for copy: %w", err)
 	}
@@ -241,44 +277,52 @@ func (ab *AzureBlobBackend) CopyObject(ctx context.Context, srcBucket, srcKey, d
 	return nil
 }
 
-func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey string) (reader io.ReadCloser, err error) {
-	defer func() { ab.recordAzureRequest(ctx, "GetObject", err) }()
-
-	resp, err := ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey).DownloadStream(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("download blob failed: %w", err)
-	}
-	return resp.Body, nil
-}
-
 func (ab *AzureBlobBackend) DeleteObject(ctx context.Context, bucketName, objectKey string) (err error) {
 	defer func() { ab.recordAzureRequest(ctx, "DeleteObject", err) }()
 
-	_, err = ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey).Delete(ctx, nil)
+	_, err = ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey).Delete(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("delete blob failed: %w", err)
 	}
 	return nil
 }
 
-func (ab *AzureBlobBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, err error) {
+func (ab *AzureBlobBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, size int64, lastModified time.Time, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "HeadObject", err) }()
 
-	_, err = ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey).GetProperties(ctx, nil)
-	if err != nil {
-		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "BlobNotFound") {
-			return false, nil
-		}
-		return false, fmt.Errorf("get blob properties failed: %w", err)
+	// Defensive: empty objectKey indicates a bucket-level HEAD which should
+	// be handled by HeadBucketHandler; treat empty key as not found here to
+	// avoid making an invalid Azure SDK call that results in 400 InvalidUri.
+	if strings.TrimSpace(objectKey) == "" {
+		return false, 0, time.Time{}, nil
 	}
-	return true, nil
+
+	props, err := ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey).GetProperties(ctx, nil)
+	if err != nil {
+		// Map Azure SDK responses that indicate the blob doesn't exist
+		errStr := err.Error()
+		if strings.Contains(errStr, "404") || strings.Contains(errStr, "BlobNotFound") || strings.Contains(errStr, "InvalidUri") {
+			return false, 0, time.Time{}, nil
+		}
+		return false, 0, time.Time{}, fmt.Errorf("get blob properties failed: %w", err)
+	}
+
+	var sz int64
+	if props.ContentLength != nil {
+		sz = *props.ContentLength
+	}
+	var lm time.Time
+	if props.LastModified != nil {
+		lm = props.LastModified.UTC()
+	}
+	return true, sz, lm, nil
 }
 
 func (ab *AzureBlobBackend) ListObjects(ctx context.Context, bucketName, prefix string) (objects []string, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "ListObjects", err) }()
 
 	var objectsList []string
-	containerClient := ab.client.ServiceClient().NewContainerClient(bucketName)
+	containerClient := ab.getContainerClient(bucketName)
 	options := &container.ListBlobsFlatOptions{Prefix: &prefix}
 
 	pager := containerClient.NewListBlobsFlatPager(options)
@@ -298,12 +342,36 @@ func (ab *AzureBlobBackend) ListObjects(ctx context.Context, bucketName, prefix 
 	return objectsList, nil
 }
 
+// GetObject returns object data and metadata for S3 compatibility
+func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
+	var info backend.ObjectInfo
+	blobClient := ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey)
+	props, err := blobClient.GetProperties(ctx, nil)
+	if err != nil {
+		return info, fmt.Errorf("get blob properties failed: %w", err)
+	}
+	resp, err := blobClient.DownloadStream(ctx, nil)
+	if err != nil {
+		return info, fmt.Errorf("download blob failed: %w", err)
+	}
+	info.Body = resp.Body
+	if props.LastModified != nil {
+		info.LastModified = props.LastModified.UTC()
+	} else {
+		info.LastModified = time.Now().UTC()
+	}
+	if props.ContentLength != nil {
+		info.Size = *props.ContentLength
+	}
+	return info, nil
+}
+
 // InitiateMultipartUpload initiates a new multipart upload
 func (ab *AzureBlobBackend) InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (string, error) {
 	uploadID := fmt.Sprintf("%s-%s-%d", bucketName, objectKey, time.Now().UnixNano())
 
 	// Create block blob client for this upload
-	blockBlobClient := ab.client.ServiceClient().NewContainerClient(bucketName).NewBlockBlobClient(objectKey)
+	blockBlobClient := ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey)
 
 	ab.multipartUploadsMutex.Lock()
 	defer ab.multipartUploadsMutex.Unlock()
@@ -337,33 +405,37 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 		return "", fmt.Errorf("upload ID does not match bucket/key")
 	}
 
-	// Read part data (outside lock to avoid blocking)
-	partData, err := io.ReadAll(data)
+	// Buffer to temp file instead of memory to avoid OOM
+	tmpFile, err := os.CreateTemp("", "azs3-proxy-part-*")
 	if err != nil {
-		return "", fmt.Errorf("failed to read part data: %w", err)
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	if _, err := io.Copy(tmpFile, data); err != nil {
+		return "", fmt.Errorf("failed to write part data to temp file: %w", err)
+	}
+
+	if _, err := tmpFile.Seek(0, 0); err != nil {
+		return "", fmt.Errorf("failed to seek temp file: %w", err)
 	}
 
 	// Create a block ID based on part number (base64 encoded)
 	blockID := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%010d", partNumber)))
 
-	// Hold lock for the critical section: stage block + update metadata atomically
-	ab.multipartUploadsMutex.Lock()
-	defer ab.multipartUploadsMutex.Unlock()
-
-	// Re-verify upload still exists after releasing lock
-	upload, exists = ab.multipartUploads[uploadID]
-	if !exists {
-		return "", fmt.Errorf("no such upload: %s", uploadID)
-	}
-
-	// Stage the block in Azure using readSeekCloser wrapper
-	_, err = upload.BlockBlobClient.StageBlock(ctx, blockID, &readSeekCloser{bytes.NewReader(partData)}, nil)
+	// Stage the block in Azure using the temp file
+	// We do NOT hold the global lock here to allow concurrent uploads
+	_, err = upload.BlockBlobClient.StageBlock(ctx, blockID, tmpFile, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to stage block: %w", err)
 	}
 
 	// Update upload metadata with block ID and part etag
-	// This is now atomic with the StageBlock call
+	// We use the per-upload mutex to protect the map and slice
+	upload.Mutex.Lock()
+	defer upload.Mutex.Unlock()
+
 	upload.BlockIDs = append(upload.BlockIDs, blockID)
 	etag = fmt.Sprintf("\"%s\"", blockID)
 	upload.PartETagMap[partNumber] = etag
@@ -387,12 +459,20 @@ func (ab *AzureBlobBackend) CompleteMultipartUpload(ctx context.Context, bucketN
 		return "", fmt.Errorf("upload ID does not match bucket/key")
 	}
 
+	// Use the BlockIDs in the order they were uploaded, as requested
+	// We hold the lock during commit to ensure consistency, but we MUST release it
+	// before acquiring multipartUploadsMutex to delete the upload, to avoid deadlock.
+	upload.Mutex.Lock()
 	if len(upload.BlockIDs) == 0 {
+		upload.Mutex.Unlock()
 		return "", fmt.Errorf("no parts uploaded")
 	}
 
 	// Finalize the multipart upload by committing the staged blocks
+	// We use upload.BlockIDs directly.
 	_, err = upload.BlockBlobClient.CommitBlockList(ctx, upload.BlockIDs, nil)
+	upload.Mutex.Unlock()
+
 	if err != nil {
 		return "", fmt.Errorf("failed to commit block list: %w", err)
 	}
@@ -442,9 +522,21 @@ func (ab *AzureBlobBackend) ListParts(ctx context.Context, bucketName, objectKey
 		return nil, fmt.Errorf("upload ID does not match bucket/key")
 	}
 
+	// Use BlockIDs to list parts in upload order
+	upload.Mutex.Lock()
+	defer upload.Mutex.Unlock()
+
 	var parts []interface{}
-	for i, blockID := range upload.BlockIDs {
-		partNum := i + 1
+	for _, blockID := range upload.BlockIDs {
+		// Decode blockID to get part number
+		decoded, err := base64.StdEncoding.DecodeString(blockID)
+		var partNum int
+		if err == nil {
+			// Try to parse the part number from the block ID
+			// Format is "%010d"
+			fmt.Sscanf(string(decoded), "%d", &partNum)
+		}
+
 		parts = append(parts, map[string]interface{}{
 			"PartNumber": partNum,
 			"ETag":       fmt.Sprintf("\"%s\"", blockID),
@@ -480,7 +572,7 @@ func (ab *AzureBlobBackend) EnableVersioning(ctx context.Context, bucketName str
 	defer ab.versionedBucketsMutex.Unlock()
 
 	// Check if bucket exists
-	containerClient := ab.client.ServiceClient().NewContainerClient(bucketName)
+	containerClient := ab.getContainerClient(bucketName)
 	_, err := containerClient.GetProperties(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("bucket %s does not exist: %w", bucketName, err)
@@ -500,7 +592,7 @@ func (ab *AzureBlobBackend) GetVersioning(ctx context.Context, bucketName string
 
 // ListObjectVersions lists all versions of all objects in a bucket
 func (ab *AzureBlobBackend) ListObjectVersions(ctx context.Context, bucketName, prefix string) ([]interface{}, error) {
-	containerClient := ab.client.ServiceClient().NewContainerClient(bucketName)
+	containerClient := ab.getContainerClient(bucketName)
 
 	var versions []interface{}
 	pager := containerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{
@@ -534,23 +626,35 @@ func (ab *AzureBlobBackend) ListObjectVersions(ctx context.Context, bucketName, 
 }
 
 // GetObjectVersion retrieves a specific version of an object
-func (ab *AzureBlobBackend) GetObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) (io.ReadCloser, error) {
-	containerClient := ab.client.ServiceClient().NewContainerClient(bucketName)
+func (ab *AzureBlobBackend) GetObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) (backend.ObjectInfo, error) {
+	var info backend.ObjectInfo
+	containerClient := ab.getContainerClient(bucketName)
 	blobClient := containerClient.NewBlockBlobClient(objectKey)
 
-	// In Azure Blob Storage, versionID is a snapshot ID or version timestamp
-	// We'll attempt to use it as-is for downloading a specific version
-	resp, err := blobClient.DownloadStream(ctx, nil)
+	// Try to get properties first so we can populate LastModified
+	props, err := blobClient.GetProperties(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get object version: %w", err)
+		return info, fmt.Errorf("failed to get object version properties: %w", err)
 	}
 
-	return resp.Body, nil
+	resp, err := blobClient.DownloadStream(ctx, nil)
+	if err != nil {
+		return info, fmt.Errorf("failed to download object version: %w", err)
+	}
+
+	info.Body = resp.Body
+	if props.LastModified != nil {
+		info.LastModified = props.LastModified.UTC()
+	} else {
+		info.LastModified = time.Now().UTC()
+	}
+
+	return info, nil
 }
 
 // DeleteObjectVersion deletes a specific version of an object
 func (ab *AzureBlobBackend) DeleteObjectVersion(ctx context.Context, bucketName, objectKey, versionID string) error {
-	containerClient := ab.client.ServiceClient().NewContainerClient(bucketName)
+	containerClient := ab.getContainerClient(bucketName)
 	blobClient := containerClient.NewBlockBlobClient(objectKey)
 
 	// In Azure Blob Storage, versionID is managed through blob versioning

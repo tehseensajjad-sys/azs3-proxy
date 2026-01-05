@@ -46,16 +46,34 @@ func (av *AuthVerifier) VerifySignature(r *http.Request) error {
 		return fmt.Errorf("invalid authorization header format")
 	}
 
-	// Parse authorization header into three parts: Credential, SignedHeaders, Signature
-	parts := strings.Split(authHeader[17:], ", ")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid authorization header parts")
+	// Parse authorization header into key=value parts separated by commas, allowing optional spaces
+	paramSection := authHeader[len("AWS4-HMAC-SHA256 "):]
+	tokens := strings.Split(paramSection, ",")
+	params := make(map[string]string, len(tokens))
+	for _, token := range tokens {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		kv := strings.SplitN(token, "=", 2)
+		if len(kv) != 2 {
+			return fmt.Errorf("invalid authorization header segment: %s", token)
+		}
+		params[kv[0]] = kv[1]
 	}
 
-	// Extract each component from the authorization header
-	credentialPart := strings.TrimPrefix(parts[0], "Credential=")
-	signedHeadersPart := strings.TrimPrefix(parts[1], "SignedHeaders=")
-	signaturePart := strings.TrimPrefix(parts[2], "Signature=")
+	credentialPart, ok := params["Credential"]
+	if !ok {
+		return fmt.Errorf("missing credential in authorization header")
+	}
+	signedHeadersPart, ok := params["SignedHeaders"]
+	if !ok {
+		return fmt.Errorf("missing signed headers in authorization header")
+	}
+	signaturePart, ok := params["Signature"]
+	if !ok {
+		return fmt.Errorf("missing signature in authorization header")
+	}
 
 	// Parse the credential scope (format: AccessKey/Date/Region/Service/aws4_request)
 	credentialParts := strings.Split(credentialPart, "/")
@@ -117,8 +135,8 @@ func (av *AuthVerifier) buildCanonicalRequest(r *http.Request, signedHeaders str
 	// Get HTTP method (GET, PUT, POST, DELETE, HEAD)
 	method := r.Method
 
-	// Get request URI, default to "/" if empty
-	canonicalURI := r.URL.Path
+	// Get request URI (preserve percent-encoding using EscapedPath), default to "/" if empty
+	canonicalURI := r.URL.EscapedPath()
 	if canonicalURI == "" {
 		canonicalURI = "/"
 	}

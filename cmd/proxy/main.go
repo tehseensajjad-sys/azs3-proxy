@@ -252,6 +252,13 @@ func startDaemon() {
 	cmd.Env = append(os.Environ(), "GOTRACEBACK=crash")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
+	// Redirect stdout/stderr to a debug file to capture any startup errors or panics
+	debugLog, err := os.OpenFile("daemon-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err == nil {
+		cmd.Stdout = debugLog
+		cmd.Stderr = debugLog
+	}
+
 	if err := cmd.Start(); err != nil {
 		fmt.Printf("Failed to start daemon: %v\n", err)
 		os.Exit(1)

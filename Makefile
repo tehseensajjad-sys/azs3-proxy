@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean docker-build run stop test-app collector
+.PHONY: all build test lint clean docker-build run stop test-app collector benchmark
 
 # Build variables
 BINARY_NAME=azs3-proxy
@@ -78,3 +78,18 @@ collector:
 		-v $$(pwd)/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml \
 		otel/opentelemetry-collector-contrib:latest
 	@echo "Collector started. View logs with: docker logs -f otel-collector"
+
+benchmark:
+	@echo "Cleaning up previous benchmark runs..."
+	rm -rf warp_runs
+	rm -f *.pid
+	rm -f azs3-proxy.log
+	rm -f $(BINARY_NAME)
+	@echo "Running MinIO benchmarks..."
+	@if [ -f .env ]; then \
+		echo "Loading .env file..."; \
+		set -a && . ./.env && set +a; \
+	else \
+		echo "Warning: .env file not found. Benchmarks might fail if Azure creds are missing."; \
+	fi; \
+	script -q -c "bash ./test/benchmarking/minio.sh" benchmark.log > /dev/null 2>&1 & echo "Benchmark running in background. Logs: benchmark.log"

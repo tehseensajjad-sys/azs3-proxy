@@ -40,6 +40,21 @@ func TestVerifySignatureWithValidHeader(t *testing.T) {
 	}
 }
 
+func TestVerifySignatureHeaderParsingWithoutSpaces(t *testing.T) {
+	accessKey := "AKIA1234567890ABCDEF"
+	secretKey := "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+	av := NewAuthVerifier(accessKey, secretKey)
+
+	req, _ := http.NewRequest("GET", "http://localhost:8080/", nil)
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIA1234567890ABCDEF/20231201/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-date,Signature=invalid")
+	req.Header.Set("X-Amz-Date", "20231201T120000Z")
+
+	err := av.VerifySignature(req)
+	if err == nil || err.Error() != "signature mismatch" {
+		t.Errorf("expected signature mismatch error, got %v", err)
+	}
+}
+
 func TestNewAuthVerifier(t *testing.T) {
 	av := NewAuthVerifier("test-key", "test-secret")
 
