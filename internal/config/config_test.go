@@ -752,7 +752,7 @@ func TestValidateAzureAuthConfig_FederatedToken(t *testing.T) {
 			config: &AzureAuthConfig{
 				Mode:               AuthModeFederatedToken,
 				StorageAccountName: "testaccount",
-				FederatedTokenFile: "/etc/token",
+				FederatedTokenFile: "config_test.go",
 				TenantID:           "tenant-id",
 			},
 			setupEnv:   func() {},
@@ -764,7 +764,7 @@ func TestValidateAzureAuthConfig_FederatedToken(t *testing.T) {
 			config: &AzureAuthConfig{
 				Mode:               AuthModeFederatedToken,
 				StorageAccountName: "testaccount",
-				FederatedTokenFile: "/etc/token",
+				FederatedTokenFile: "config_test.go",
 				FederatedClientID:  "client-id",
 			},
 			setupEnv:   func() {},

@@ -92,4 +92,4 @@ benchmark:
 	else \
 		echo "Warning: .env file not found. Benchmarks might fail if Azure creds are missing."; \
 	fi; \
-	script -q -c "bash ./test/benchmarking/minio.sh" benchmark.log > /dev/null 2>&1 & echo "Benchmark running in background. Logs: benchmark.log"
+	script -q -c "bash ./test/benchmarking/rabata-warp.sh" benchmark.log > /dev/null 2>&1 & echo "Benchmark running in background. Logs: benchmark.log"

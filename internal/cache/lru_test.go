@@ -1,13 +1,82 @@
 package cache
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
+
+func TestLRUCachePutGetDeleteFlow(t *testing.T) {
+	dir := t.TempDir()
+
+	// create a source file to cache
+	src := filepath.Join(dir, "src.txt")
+	if err := os.WriteFile(src, []byte("hello world"), 0644); err != nil {
+		t.Fatalf("failed to write source file: %v", err)
+	}
+
+	lc, err := NewLRUCache(filepath.Join(dir, "cache"), 1024*10, time.Minute)
+	if err != nil {
+		t.Fatalf("failed to create LRUCache: %v", err)
+	}
+	defer lc.Close()
+
+	// set telemetry manager (should be safe even if disabled)
+	mgr, _ := telemetry.NewManager(context.Background())
+	if mgr == nil {
+		// fallback to nil manager if NewManager isn't available in this environment
+		lc.SetTelemetryManager(nil)
+	} else {
+		lc.SetTelemetryManager(mgr)
+	}
+
+	// Put file into cache
+	if err := lc.Put("bucket/key", src, 11); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	if lc.Size() == 0 {
+		t.Fatalf("expected size > 0 after Put")
+	}
+
+	if lc.Count() != 1 {
+		t.Fatalf("expected count 1, got %d", lc.Count())
+	}
+
+	// Get should return cached file path
+	path, err := lc.Get("bucket/key")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if path == "" {
+		t.Fatalf("expected non-empty path from Get")
+	}
+
+	// Exists should be true
+	if !lc.Exists("bucket/key") {
+		t.Fatalf("expected Exists true")
+	}
+
+	// Delete the entry
+	if err := lc.Delete("bucket/key"); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	if lc.Count() != 0 {
+		t.Fatalf("expected count 0 after Delete, got %d", lc.Count())
+	}
+
+	// Clear on empty cache should succeed
+	if err := lc.Clear(); err != nil {
+		t.Fatalf("Clear failed: %v", err)
+	}
+}
 
 // TestNewLRUCache tests that NewLRUCache creates a cache with correct initialization.
 func TestNewLRUCache(t *testing.T) {
@@ -495,4 +564,31 @@ func BenchmarkGet(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = cache.Get(key)
 	}
+}
+
+func TestLRUCacheFileMissing(t *testing.T) {
+dir := t.TempDir()
+src := filepath.Join(dir, "src.txt")
+os.WriteFile(src, []byte("data"), 0644)
+
+lc, _ := NewLRUCache(filepath.Join(dir, "cache"), 1000, time.Minute)
+defer lc.Close()
+
+lc.Put("key", src, 4)
+path, err := lc.Get("key")
+if err != nil || path == "" {
+t.Fatalf("expected hit")
+}
+
+// Manually remove cached file from disk
+os.Remove(path)
+
+// Now Get should return miss because file is gone
+path2, err := lc.Get("key")
+if err != nil {
+t.Fatalf("Get error: %v", err)
+}
+if path2 != "" {
+t.Fatal("expected miss/cleanup after file removal")
+}
 }

@@ -3,6 +3,8 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -77,6 +79,49 @@ func (s *S3ProxyServer) registerMiddleware() {
 
 	// Custom AWS SigV4 signature verification middleware
 	s.router.Use(s.authMiddleware)
+
+	// Optional response debug middleware (enabled via DEBUG_RESPONSES env var)
+	if os.Getenv("DEBUG_RESPONSES") == "true" {
+		s.logger.Warn("response debug middleware enabled")
+		s.router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Wrap ResponseWriter to capture status and headers
+				rw := &responseCapture{ResponseWriter: w}
+				next.ServeHTTP(rw, r)
+				// Only log for object/bucket paths to reduce noise
+				if strings.HasPrefix(r.URL.Path, "/") {
+					s.logger.Info("response debug",
+						zap.String("method", r.Method),
+						zap.String("path", r.URL.Path),
+						zap.Int("status", rw.status),
+						zap.Any("headers", rw.headers))
+				}
+			})
+		})
+	}
+}
+
+// responseCapture captures status code and headers written to a ResponseWriter
+type responseCapture struct {
+	http.ResponseWriter
+	status  int
+	headers http.Header
+}
+
+func (r *responseCapture) WriteHeader(statusCode int) {
+	r.status = statusCode
+	r.headers = r.ResponseWriter.Header().Clone()
+	r.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Write ensures we capture the default 200 status and headers when
+// handlers write the body without explicitly calling WriteHeader.
+func (r *responseCapture) Write(b []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+		r.headers = r.ResponseWriter.Header().Clone()
+	}
+	return r.ResponseWriter.Write(b)
 }
 
 // authMiddleware validates incoming requests with AWS SigV4 signature verification.

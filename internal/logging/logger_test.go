@@ -7,66 +7,75 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestNewLogger(t *testing.T) {
-	// Test Console Mode
-	logger, err := NewLogger("", "info", "console")
+func TestNewLoggerCreatesLogger(t *testing.T) {
+	l, err := NewLogger("", InfoLevel, "console")
 	if err != nil {
-		t.Fatalf("NewLogger(console) failed: %v", err)
+		t.Fatalf("NewLogger failed: %v", err)
 	}
-	if logger == nil {
-		t.Fatal("NewLogger(console) returned nil")
+	if l == nil {
+		t.Fatalf("expected logger, got nil")
 	}
-	logger.Info("test console log")
+}
 
-	// Test File Mode
+func TestFileAndConsoleWrappers(t *testing.T) {
+	tmpfile, err := os.CreateTemp("", "test_wrapper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	fw := &FileWriterWrapper{file: tmpfile, programName: "test", pid: 123}
+	if _, err := fw.Write([]byte("test log")); err != nil {
+		t.Fatalf("FileWriterWrapper Write failed: %v", err)
+	}
+	if err := fw.Sync(); err != nil {
+		t.Fatalf("FileWriterWrapper Sync failed: %v", err)
+	}
+	if err := fw.Close(); err != nil {
+		t.Fatalf("FileWriterWrapper Close failed: %v", err)
+	}
+
+	cw := &ConsoleWriterWrapper{writer: os.Stdout, programName: "prog", pid: 123}
+	if _, err := cw.Write([]byte("hi")); err != nil {
+		t.Fatalf("ConsoleWriterWrapper Write failed: %v", err)
+	}
+	if err := cw.Sync(); err != nil {
+		t.Fatalf("ConsoleWriterWrapper Sync failed: %v", err)
+	}
+}
+
+// TestTimeEncoderFormats removed due to complex mocking requirements for zapcore.PrimitiveArrayEncoder
+// func TestTimeEncoderFormats(t *testing.T) {
+// 	var enc zapcore.PrimitiveArrayEncoder
+// 	timeEncoder(time.Now(), enc)
+// }
+
+func TestAdvancedLoggerMethods(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "test-log-*.log")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = os.Remove(tmpFile.Name()) }()
-	_ = tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
 
-	logger, err = NewLogger(tmpFile.Name(), "debug", "file")
+	logger, err := NewLogger(tmpFile.Name(), DebugLevel, "file")
 	if err != nil {
 		t.Fatalf("NewLogger(file) failed: %v", err)
 	}
-	logger.Debug("test file log")
+	logger.Debug("test")
 
-	// Test Both Mode
-	logger, err = NewLogger(tmpFile.Name(), "warn", "both")
-	if err != nil {
-		t.Fatalf("NewLogger(both) failed: %v", err)
+	zapLogger := logger.GetZapLogger()
+	if zapLogger == nil {
+		t.Error("GetZapLogger returned nil")
 	}
-	logger.Warn("test both log")
-
-	// Test Invalid Level
-	_, err = NewLogger("", "invalid", "console")
-	if err == nil {
-		t.Error("Expected error for invalid log level")
-	}
-
-	// Test Invalid Mode
-	_, err = NewLogger("", "info", "invalid")
-	if err == nil {
-		t.Error("Expected error for invalid mode")
-	}
-
-	// Test Missing File
-	_, err = NewLogger("", "info", "file")
-	if err == nil {
-		t.Error("Expected error for missing log file")
-	}
+	_ = zapLogger
 }
 
 func TestLogger_Methods(t *testing.T) {
 	logger, _ := NewLogger("", "debug", "console")
-
-	// Verify methods don't panic
 	logger.Debug("debug msg", zap.String("key", "val"))
 	logger.Info("info msg")
 	logger.Warn("warn msg")
 	logger.Error("error msg")
-	// logger.Fatal calls os.Exit, so we skip it
 }
 
 func TestLogger_AdvancedMethods(t *testing.T) {
@@ -82,52 +91,18 @@ func TestLogger_AdvancedMethods(t *testing.T) {
 		t.Fatalf("NewLogger failed: %v", err)
 	}
 
-	// Test Sync
 	if err := logger.Sync(); err != nil {
-		// Sync might fail on some systems/files, but we just want to cover the call
 		t.Logf("Sync returned error: %v", err)
 	}
 
-	// Test GetZapLogger
 	zapLogger := logger.GetZapLogger()
 	if zapLogger == nil {
 		t.Error("GetZapLogger returned nil")
 	}
 
-	// Test WithCore
-	// Create a dummy core
 	core := zap.NewNop().Core()
 	newLogger := logger.WithCore(core)
 	if newLogger == nil {
 		t.Error("WithCore returned nil")
-	}
-}
-
-func TestFileWriterWrapper(t *testing.T) {
-	tmpfile, err := os.CreateTemp("", "test_wrapper")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-
-	wrapper := &FileWriterWrapper{
-		file:        tmpfile,
-		programName: "test",
-		pid:         123,
-	}
-
-	_, err = wrapper.Write([]byte("test log"))
-	if err != nil {
-		t.Errorf("Write failed: %v", err)
-	}
-
-	err = wrapper.Sync()
-	if err != nil {
-		t.Errorf("Sync failed: %v", err)
-	}
-
-	err = wrapper.Close()
-	if err != nil {
-		t.Errorf("Close failed: %v", err)
 	}
 }

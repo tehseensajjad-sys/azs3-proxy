@@ -1,13 +1,45 @@
 package server
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
-
 	"github.com/vibhansa-msft/azs3-proxy/internal/config"
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
+	"go.uber.org/zap"
 )
+
+func TestResponseCaptureBasic(t *testing.T) {
+	rr := httptest.NewRecorder()
+	rc := &responseCapture{ResponseWriter: rr}
+
+	// write without explicit WriteHeader
+	_, _ = rc.Write([]byte("ok"))
+	if rc.status != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rc.status)
+	}
+}
+
+func TestAuthMiddlewareSkipsHealth(t *testing.T) {
+	r := chi.NewMux()
+	logger, _ := zap.NewDevelopment()
+	defer func() { _ = logger.Sync() }()
+
+	cfg := &config.Config{AzureAuth: &config.AzureAuthConfig{StorageAccountName: "test", Mode: config.AuthModeAccountKey}}
+	s := &S3ProxyServer{router: r, config: cfg, logger: logger, telMgr: &telemetry.Manager{}}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	hw := s.authMiddleware(handler)
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	rr := httptest.NewRecorder()
+	hw.ServeHTTP(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200 for health path, got %d", rr.Code)
+	}
+}
 
 func TestNewS3ProxyServer(t *testing.T) {
 	// Create a valid Azure auth config for testing
@@ -339,19 +371,74 @@ func TestNewS3ProxyServer_InvalidAuth(t *testing.T) {
 		Mode:               config.AzureAuthMode("invalid"),
 		StorageAccountName: "testaccount",
 	}
-
 	cfg := &config.Config{
-		ListenAddr:        ":8080",
-		AzureAuth:         azureAuth,
-		S3AccessKeyID:     "test",
-		S3SecretAccessKey: "test",
+		ListenAddr: ":8080",
+		AzureAuth:  azureAuth,
+		LogLevel:   "info",
+	}
+	router := chi.NewRouter()
+	logger, _ := zap.NewDevelopment()
+	_, err := NewS3ProxyServer(router, cfg, logger, nil)
+	if err == nil {
+		t.Error("expected error for invalid auth mode")
+	}
+}
+
+func TestResponseCaptureWriteHeaderAndWrite(t *testing.T) {
+	rr := httptest.NewRecorder()
+	rc := &responseCapture{ResponseWriter: rr}
+
+	// When Write is called without prior WriteHeader, status should default to 200
+	n, err := rc.Write([]byte("ok"))
+	if err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("unexpected write length: %d", n)
+	}
+	if rc.status != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rc.status)
+	}
+
+	// Test WriteHeader sets status and captures headers
+	rr2 := httptest.NewRecorder()
+	rc2 := &responseCapture{ResponseWriter: rr2}
+	rc2.Header().Set("X-Test", "1")
+	rc2.WriteHeader(404)
+	if rc2.status != 404 {
+		t.Fatalf("expected status 404, got %d", rc2.status)
+	}
+	if rc2.headers.Get("X-Test") != "1" {
+		t.Fatalf("expected header X-Test=1, got %v", rc2.headers)
+	}
+}
+
+func TestNewS3ProxyServerWithCache(t *testing.T) {
+	tmpDir := t.TempDir()
+	azureAuth := &config.AzureAuthConfig{
+		Mode:               config.AuthModeAccountKey,
+		StorageAccountName: "testaccount",
+		AccountKey:         "dGVzdGtleQ==",
+		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
+	}
+	cfg := &config.Config{
+		ListenAddr:   ":8080",
+		AzureAuth:    azureAuth,
+		LogLevel:     "info",
+		CacheEnabled: true,
+		CachePath:    tmpDir,
+		CacheMaxSize: 1024,
+		CacheTTL:     60,
 	}
 
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
-
-	_, err := NewS3ProxyServer(router, cfg, logger, nil)
-	if err == nil {
-		t.Error("Expected error for invalid auth mode")
+	server, err := NewS3ProxyServer(router, cfg, logger, nil)
+	if err != nil {
+		t.Fatalf("NewS3ProxyServer with cache failed: %v", err)
 	}
+	if server.cacheManager == nil {
+		t.Error("cacheManager should be initialized")
+	}
+	server.Close()
 }

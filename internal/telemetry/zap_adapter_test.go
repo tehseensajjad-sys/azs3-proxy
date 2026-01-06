@@ -40,7 +40,13 @@ func TestOtelZapCore(t *testing.T) {
 	}
 
 	// Test Write
-	err := core.Write(entry, []zapcore.Field{zap.String("key", "value")})
+	err := core.Write(entry, []zapcore.Field{
+		zap.String("key", "value"),
+		zap.Int("count", 123),              // Covers Int case
+		zap.Bool("flag", true),             // Covers Bool case
+		zap.Error(nil),                     // Covers Error case
+		zap.Any("unk", struct{ A int }{1}), // Covers default case
+	})
 	if err != nil {
 		t.Errorf("Write returned error: %v", err)
 	}

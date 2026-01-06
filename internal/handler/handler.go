@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -30,6 +31,15 @@ type S3Handler struct {
 	cacheManager *cache.CacheManager      // Optional cache manager for storing/retrieving objects locally
 	telMgr       *telemetry.Manager       // Optional telemetry manager for metrics export
 	stats        *models.S3OperationStats // Statistics for S3 operations
+}
+
+// countingWriter is a small io.Writer that counts bytes written to it.
+// Used with io.TeeReader to record how many bytes the backend consumed.
+type countingWriter struct{ cnt int64 }
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	atomic.AddInt64(&c.cnt, int64(len(p)))
+	return len(p), nil
 }
 
 // NewS3Handler creates and returns a new S3 API handler instance.
@@ -320,6 +330,7 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var err error
+
 	if copySource != "" {
 		// Handle CopyObject
 		decodedSource, decodeErr := url.QueryUnescape(copySource)
@@ -346,7 +357,15 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 		err = h.backend.CopyObject(r.Context(), srcBucket, srcKey, bucket, key)
 	} else {
-		err = h.backend.PutObject(r.Context(), bucket, key, r.Body)
+		cw := &countingWriter{}
+		reader := io.TeeReader(r.Body, cw)
+		err = h.backend.PutObject(r.Context(), bucket, key, reader)
+		// Log bytes read by backend for diagnostics
+		h.logger.Info("putobject bytes read by backend",
+			zap.String("bucket", bucket),
+			zap.String("key", key),
+			zap.Int64("content_length_header", contentLength),
+			zap.Int64("bytes_read", atomic.LoadInt64(&cw.cnt)))
 	}
 
 	if err != nil {
@@ -482,12 +501,13 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	// If caching is enabled, cache the object for future requests
 	// We buffer the response to avoid race conditions with async caching
 	var objectData []byte
-	if h.cacheManager != nil {
-		var readErr error
-		// Read entire object into memory to cache it
-		objectData, readErr = io.ReadAll(objInfo.Body)
-		if readErr != nil {
-			h.logger.Error("failed to read object for caching",
+	if objInfo.Size > 0 {
+		// If backend reports size, read exactly that many bytes to avoid
+		// returning extra data that may be present on the stream.
+		buf := make([]byte, objInfo.Size)
+		n, readErr := io.ReadFull(objInfo.Body, buf)
+		if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+			h.logger.Error("failed to read object",
 				zap.Error(readErr),
 				zap.String("bucket", bucket),
 				zap.String("key", key))
@@ -496,18 +516,27 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		if int64(n) != objInfo.Size {
+			h.logger.Warn("object size mismatch when reading",
+				zap.String("bucket", bucket),
+				zap.String("key", key),
+				zap.Int("bytes_read", n),
+				zap.Int64("expected_size", objInfo.Size))
+		}
+		objectData = buf[:n]
 
-		// Cache the object asynchronously to avoid blocking response
-		cacheKey := generateCacheKey(bucket, key)
-		go func() {
-			if err := h.cacheManager.CacheObject(cacheKey, objectData); err != nil {
-				h.logger.Warn("failed to cache object after get",
-					zap.Error(err),
-					zap.String("cache_key", cacheKey))
-			}
-		}()
+		if h.cacheManager != nil {
+			cacheKey := generateCacheKey(bucket, key)
+			go func(data []byte) {
+				if err := h.cacheManager.CacheObject(cacheKey, data); err != nil {
+					h.logger.Warn("failed to cache object after get",
+						zap.Error(err),
+						zap.String("cache_key", cacheKey))
+				}
+			}(append([]byte(nil), objectData...))
+		}
 	} else {
-		// If caching disabled, read the object normally
+		// If size unknown, fall back to reading entire stream
 		var readErr error
 		objectData, readErr = io.ReadAll(objInfo.Body)
 		if readErr != nil {
@@ -519,6 +548,17 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("ETag", "\"0\"")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
+		}
+
+		if h.cacheManager != nil {
+			cacheKey := generateCacheKey(bucket, key)
+			go func(data []byte) {
+				if err := h.cacheManager.CacheObject(cacheKey, data); err != nil {
+					h.logger.Warn("failed to cache object after get",
+						zap.Error(err),
+						zap.String("cache_key", cacheKey))
+				}
+			}(append([]byte(nil), objectData...))
 		}
 	}
 

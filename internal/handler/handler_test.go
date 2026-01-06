@@ -14,8 +14,37 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/vibhansa-msft/azs3-proxy/internal/backend"
 	"github.com/vibhansa-msft/azs3-proxy/internal/cache"
+	"github.com/vibhansa-msft/azs3-proxy/internal/models"
+	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 	"go.uber.org/zap"
 )
+
+func TestSetTelemetryManagerAndWriteErrorResponse(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	defer func() { _ = logger.Sync() }()
+
+	h := NewS3Handler(nil, logger)
+	if h == nil {
+		t.Fatal("handler is nil")
+	}
+
+	// Set a telemetry manager stub (nil metrics provider is acceptable)
+	tel, _ := telemetry.NewManager(context.Background())
+	if tel == nil {
+		h.SetTelemetryManager(nil)
+	} else {
+		h.SetTelemetryManager(tel)
+	}
+	h.SetTelemetryManager(tel)
+
+	// Exercise writeErrorResponse to ensure XML is written and no panic
+	rr := httptest.NewRecorder()
+	s3err := &models.S3Error{Code: models.InternalError, Message: "boom", Resource: "/bucket/key"}
+	h.writeErrorResponse(rr, s3err)
+	if rr.Result().StatusCode == 0 {
+		t.Fatalf("expected status code set, got 0")
+	}
+}
 
 // MockBackend is a simple mock implementation of StorageBackend for testing
 type MockBackend struct {
