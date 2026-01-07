@@ -1,5 +1,5 @@
 
-# file: rabata-small-put-128KiB.yml
+# file: small-128KiB.yml
 warp:
   api: v1
   benchmark: put
@@ -15,11 +15,11 @@ warp:
   tls: {{.TLS}}
 
   bucket: "{{.Bucket}}"
-  bench-data: "proxy-small-put-128KiB.csv.zst"
+  bench-data: "{{.BenchData}}"
 
   params:
     duration: 300s
-    concurrent: 8
+    concurrent: {{.Concurrent}}
     post: false
 
     obj:

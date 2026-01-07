@@ -1,5 +1,5 @@
 
-# file: rabata-mixed-1MiB.yml
+# file: mixed-1MiB.yml
 warp:
   api: v1
 
@@ -22,12 +22,12 @@ warp:
   bucket: "{{.Bucket}}"
 
   # Result log (compressed CSV of all requests)
-  bench-data: "proxy-mixed-1MiB.csv.zst"
+  bench-data: "{{.BenchData}}"
 
   # Benchmark parameters
   params:
     duration: 300s            # 5 minutes steady state
-    concurrent: 8             # Rabata used 8 threads
+    concurrent: {{.Concurrent}}
 
     obj:
       size: 1MiB              # 1 MB objects

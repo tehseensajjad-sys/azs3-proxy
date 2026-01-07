@@ -1,5 +1,5 @@
 
-# file: rabata-put-1MiB.yml
+# file: put-1MiB.yml
 warp:
   api: v1
   benchmark: put
@@ -15,11 +15,11 @@ warp:
   tls: {{.TLS}}
 
   bucket: "{{.Bucket}}"
-  bench-data: "proxy-put-1MiB.csv.zst"
+  bench-data: "{{.BenchData}}"
 
   params:
     duration: 300s
-    concurrent: 8
+    concurrent: {{.Concurrent}}
 
     # PUT vs POST Object toggle
     post: false

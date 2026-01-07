@@ -45,3 +45,7 @@ go.work.sum
 
 # Python
 *.pyc
+
+# WARP Report
+*.zst
+warp_runs/

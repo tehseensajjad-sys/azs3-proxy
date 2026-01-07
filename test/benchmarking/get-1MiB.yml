@@ -1,5 +1,5 @@
 
-# file: rabata-get-1MiB.yml
+# file: get-1MiB.yml
 warp:
   api: v1
   benchmark: get
@@ -15,11 +15,11 @@ warp:
   tls: {{.TLS}}
 
   bucket: "{{.Bucket}}"
-  bench-data: "proxy-get-1MiB.csv.zst"
+  bench-data: "{{.BenchData}}"
 
   params:
     duration: 300s
-    concurrent: 8
+    concurrent: {{.Concurrent}}
 
     obj:
       size: 1MiB

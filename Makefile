@@ -81,7 +81,7 @@ collector:
 		otel/opentelemetry-collector-contrib:latest
 	@echo "Collector started. View logs with: docker logs -f otel-collector"
 
-benchmark:
+benchmark: collector
 	@echo "Cleaning up previous benchmark runs..."
 	rm -rf warp_runs
 	rm -f *.pid
@@ -94,4 +94,7 @@ benchmark:
 	else \
 		echo "Warning: .env file not found. Benchmarks might fail if Azure creds are missing."; \
 	fi; \
-	script -q -c "bash ./test/benchmarking/rabata-warp.sh" benchmark.log > /dev/null 2>&1 & echo "Benchmark running in background. Logs: benchmark.log"
+	script -q -c "bash ./test/benchmarking/warp-test.sh" benchmark.log; \
+	echo ""; \
+	echo "Generating Benchmark Report..."; \
+	python3 test/benchmarking/generate_report.py .
