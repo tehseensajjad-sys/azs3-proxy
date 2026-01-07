@@ -357,9 +357,16 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 		err = h.backend.CopyObject(r.Context(), srcBucket, srcKey, bucket, key)
 	} else {
+		var reader io.Reader = r.Body
+		// unexpected stat size from warp usually means it uses streaming signature
+		// which adds metadata to the body. We need to decode it.
+		if r.Header.Get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
+			reader = NewAwsChunkedReader(r.Body)
+		}
+
 		cw := &countingWriter{}
-		reader := io.TeeReader(r.Body, cw)
-		err = h.backend.PutObject(r.Context(), bucket, key, reader)
+		teeReader := io.TeeReader(reader, cw)
+		err = h.backend.PutObject(r.Context(), bucket, key, teeReader)
 		// Log bytes read by backend for diagnostics
 		h.logger.Info("putobject bytes read by backend",
 			zap.String("bucket", bucket),
