@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"google.golang.org/grpc"
 )
 
 // InitializeLoggerProvider creates and configures the OTEL LoggerProvider
@@ -31,6 +32,9 @@ func InitializeLoggerProvider(ctx context.Context, cfg *TelemetryConfig) (*log.L
 		// Use OTLP gRPC exporter for logs
 		opts := []otlploggrpc.Option{
 			otlploggrpc.WithEndpoint(cfg.OTLPEndpoint),
+			otlploggrpc.WithDialOption(
+				grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(50 * 1024 * 1024)),
+			),
 		}
 
 		// Check for insecure mode

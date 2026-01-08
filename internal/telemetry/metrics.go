@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"google.golang.org/grpc"
 
 	otlpmetric "go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 )
@@ -170,6 +171,9 @@ func InitializeMeterProvider(ctx context.Context, cfg *TelemetryConfig) (metric.
 	if cfg.ExportType == "otlp" {
 		opts := []otlpmetric.Option{
 			otlpmetric.WithEndpoint(cfg.OTLPEndpoint),
+			otlpmetric.WithDialOption(
+				grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(50 * 1024 * 1024)),
+			),
 		}
 
 		if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" {

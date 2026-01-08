@@ -97,4 +97,8 @@ benchmark: collector
 	script -q -c "bash ./test/benchmarking/warp-test.sh" benchmark.log; \
 	echo ""; \
 	echo "Generating Benchmark Report..."; \
-	python3 test/benchmarking/generate_report.py .
+	python3 test/benchmarking/generate_report.py . > warp_report.md
+	@echo "Benchmark report generated: warp_report.md"
+	@echo "Stopping OpenTelemetry Collector..."
+	docker rm -f otel-collector
+

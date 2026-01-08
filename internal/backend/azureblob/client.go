@@ -282,6 +282,10 @@ func (ab *AzureBlobBackend) DeleteObject(ctx context.Context, bucketName, object
 
 	_, err = ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey).Delete(ctx, nil)
 	if err != nil {
+		// S3 idempotency: If blob is not found, return success
+		if bloberror.HasCode(err, bloberror.BlobNotFound) {
+			return nil
+		}
 		return fmt.Errorf("delete blob failed: %w", err)
 	}
 	return nil

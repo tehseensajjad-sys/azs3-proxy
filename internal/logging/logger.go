@@ -10,6 +10,7 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // LogLevel represents the logging level
@@ -70,15 +71,18 @@ func NewLogger(logFile string, logLevel LogLevel, mode string) (*Logger, error) 
 			return nil, fmt.Errorf("log file path required when file logging is enabled")
 		}
 
-		// Open log file for appending, creating if it doesn't exist
-		file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open log file: %w", err)
+		// Configure log rotation using lumberjack
+		rotator := &lumberjack.Logger{
+			Filename:   logFile,
+			MaxSize:    50,    // Max size in megabytes before rotation
+			MaxBackups: 10,    // Max number of old log files to retain
+			MaxAge:     28,    // Max number of days to retain old log files
+			Compress:   false, // Compress old log files (gzip)
 		}
 
 		// Wrap file writer to add program name and PID prefix to each log line
 		fileWriter := zapcore.AddSync(&FileWriterWrapper{
-			file:        file,
+			file:        rotator,
 			programName: programName,
 			pid:         pid,
 		})
@@ -134,9 +138,9 @@ func timeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 
 // FileWriterWrapper wraps an output file and adds program name and PID prefix to each log line
 type FileWriterWrapper struct {
-	file        io.WriteCloser // File handle for writing logs
-	programName string         // Name of the binary
-	pid         int            // Process ID
+	file        io.Writer // Writer interface (supports both os.File and lumberjack.Logger)
+	programName string    // Name of the binary
+	pid         int       // Process ID
 }
 
 // Write adds program name and PID prefix before writing to file
@@ -154,9 +158,12 @@ func (fw *FileWriterWrapper) Sync() error {
 	return nil
 }
 
-// Close closes the underlying file handle
+// Close closes the underlying file handle if supported
 func (fw *FileWriterWrapper) Close() error {
-	return fw.file.Close()
+	if c, ok := fw.file.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
 }
 
 // ConsoleWriterWrapper wraps stdout and adds program name and PID prefix to each log line

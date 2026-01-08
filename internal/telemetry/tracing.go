@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"google.golang.org/grpc"
 )
 
 // InitializeTracerProvider creates and configures the OTEL TracerProvider
@@ -32,6 +33,9 @@ func InitializeTracerProvider(ctx context.Context, cfg *TelemetryConfig) (*sdktr
 		// Use OTLP gRPC exporter
 		opts := []otlptracegrpc.Option{
 			otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint),
+			otlptracegrpc.WithDialOption(
+				grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(50 * 1024 * 1024)),
+			),
 		}
 
 		// Check for insecure mode via environment variable
