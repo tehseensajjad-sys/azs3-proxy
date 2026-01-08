@@ -28,7 +28,7 @@ func LoadTelemetryConfig() *TelemetryConfig {
 		ExportType:     getOrDefault(os.Getenv("TELEMETRY_EXPORT_TYPE"), "otlp"),
 		ExportInterval: parseDuration(os.Getenv("TELEMETRY_EXPORT_INTERVAL"), 30*time.Second),
 		OTLPEndpoint:   getOrDefault(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"), "localhost:4317"),
-		LogLevel:       getOrDefault(os.Getenv("TELEMETRY_LOG_LEVEL"), "info"),
+		LogLevel:       getOrDefault(os.Getenv("TELEMETRY_LOG_LEVEL"), "warn"),
 	}
 }
 

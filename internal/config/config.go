@@ -71,7 +71,7 @@ func LoadConfig() (*Config, error) {
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     getEnvRequired("S3_ACCESS_KEY"),
 		S3SecretAccessKey: getEnvRequired("S3_SECRET_KEY"),
-		LogLevel:          getEnv("LOG_LEVEL", "info"),
+		LogLevel:          getEnv("LOG_LEVEL", "warn"),
 		LogFile:           getEnv("LOG_FILE", ""),
 		LogMode:           getEnv("LOG_MODE", "console"),
 		CacheEnabled:      getEnv("CACHE_ENABLED", "false") == "true",

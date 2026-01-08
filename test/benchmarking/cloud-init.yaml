@@ -1,0 +1,32 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - git
+  - build-essential
+  - wget
+  - curl
+  - htop
+  - unzip
+
+runcmd:
+  # Install Go (latest stable)
+  - wget https://go.dev/dl/go1.22.4.linux-amd64.tar.gz
+  - rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz
+  - echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+  - echo 'export PATH=$PATH:/usr/local/go/bin' >> /home/azureuser/.bashrc
+  - echo 'export GOPATH=/home/azureuser/go' >> /home/azureuser/.bashrc
+  - echo 'export PATH=$PATH:/home/azureuser/go/bin' >> /home/azureuser/.bashrc
+
+  # Install MinIO Warp via Go
+  # We install to a temporary location then move to global bin
+  - /usr/local/go/bin/go install github.com/minio/warp@v0.7.6
+  - cp /root/go/bin/warp /usr/local/bin/warp
+
+  # Setup directory
+  - mkdir -p /home/azureuser/azs3-proxy
+  - chown -R azureuser:azureuser /home/azureuser/azs3-proxy
+
+  # Signal completion
+  - touch /tmp/cloud-init-complete

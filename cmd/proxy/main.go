@@ -252,11 +252,19 @@ func startDaemon() {
 	cmd.Env = append(os.Environ(), "GOTRACEBACK=crash")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
-	// Redirect stdout/stderr to a debug file to capture any startup errors or panics
-	debugLog, err := os.OpenFile("daemon-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err == nil {
-		cmd.Stdout = debugLog
-		cmd.Stderr = debugLog
+	// Only enable debug logging if the level is explicitly set to debug
+	logLevel := os.Getenv("LOG_LEVEL")
+	if strings.ToLower(logLevel) == "debug" {
+		// Redirect stdout/stderr to a debug file to capture any startup errors or panics
+		debugLog, err := os.OpenFile("daemon-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err == nil {
+			cmd.Stdout = debugLog
+			cmd.Stderr = debugLog
+		}
+	} else {
+		// Discard stdout/stderr if not in debug mode
+		cmd.Stdout = nil
+		cmd.Stderr = nil
 	}
 
 	if err := cmd.Start(); err != nil {

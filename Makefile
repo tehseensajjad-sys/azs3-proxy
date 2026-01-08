@@ -26,7 +26,9 @@ run: build
 		echo "Warning: .env file not found. Running without environment variables."; \
 	fi; \
 	env | grep AZURE; \
-	./$(BINARY_NAME) --log-level=debug
+	./$(BINARY_NAME) 
+	
+# 	--log-level=debug
 
 stop: 
 	./$(BINARY_NAME) --stop

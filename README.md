@@ -185,7 +185,7 @@ azs3-proxy/
 | Env Variable | Required | Default | Description |
 |---|---|---|---|
 | `LISTEN_ADDR` | No | `:8080` | HTTP server listen address |
-| `LOG_LEVEL` | No | `info` | Logging level (debug, info, warn, error, crit) |
+| `LOG_LEVEL` | No | `warn` | Logging level (debug, info, warn, error, crit) |
 | `LOG_FILE` | No | – | Path to log file (empty for console only) |
 | `LOG_MODE` | No | `console` | Logging mode (console, file, both) |
 | `ENABLE_TLS` | No | `false` | Enable HTTPS/TLS support (true/false) |
