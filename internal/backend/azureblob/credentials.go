@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/log"
@@ -202,15 +205,32 @@ func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuth
 		logger.Debug("Azure SDK", zap.String("event", string(event)), zap.String("msg", s))
 	})
 
-	// Enable logging of HTTP requests/responses including body
-	// We enable Request and Response events
-	log.SetEvents(log.EventRequest, log.EventResponse)
+	// Enable logging of HTTP requests/responses including body settings
+	// WARNING: IncludeBody=true is a massive performance killer for high throughput.
+	// We disable it by default.
+	includeBody := false
+	if strings.ToLower(os.Getenv("LOG_LEVEL")) == "debug" {
+		includeBody = true
+		log.SetEvents(log.EventRequest, log.EventResponse)
+	} else {
+		// Disable SDK event logging in non-debug modes
+		log.SetEvents()
+	}
+
+	// Create a custom transport with optimized connection pooling settings
+	// Default MaxIdleConnsPerHost is 2, which is a major bottleneck for high-throughput proxies.
+	defaultTransport := http.DefaultTransport.(*http.Transport).Clone()
+	defaultTransport.MaxIdleConns = 1000
+	defaultTransport.MaxIdleConnsPerHost = 1000
+	defaultTransport.MaxConnsPerHost = 0 // Unlimited
+	defaultTransport.IdleConnTimeout = 90 * time.Second
+	defaultTransport.DisableCompression = true // Azure Blob SDK handles compression if needed, usually better off
 
 	clientOptions := &azblob.ClientOptions{
 		ClientOptions: azcore.ClientOptions{
 			Transport: &http.Client{
 				Transport: otelhttp.NewTransport(
-					http.DefaultTransport,
+					defaultTransport,
 					otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
 						return "AzureBlob: " + r.Method + " " + r.URL.Path
 					}),
@@ -220,7 +240,7 @@ func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuth
 				ApplicationID: "azs3-proxy/" + version.Version,
 			},
 			Logging: policy.LogOptions{
-				IncludeBody:        true,
+				IncludeBody:        includeBody,
 				AllowedHeaders:     []string{"*"},
 				AllowedQueryParams: []string{"*"},
 			},

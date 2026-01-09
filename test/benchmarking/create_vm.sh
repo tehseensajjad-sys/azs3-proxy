@@ -2,7 +2,8 @@
 set -e
 
 # Argument parsing
-EXISTING_VM_NAME="$1"
+EXISTING_VM_NAME="${1:-}"
+TEST_SCRIPT="${2:-warp-test.sh}"
 
 # ---------------------------
 # 1. Check/Install Azure CLI
@@ -41,6 +42,7 @@ fi
 echo "Using Configuration:"
 echo "  Region: $LOCATION"
 echo "  VM Size: $VM_SIZE"
+echo "  Test Script: $TEST_SCRIPT"
 echo "  Cloud Init: $CLOUD_INIT"
 echo "  Local .env: $LOCAL_ENV_FILE"
 
@@ -160,15 +162,47 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@$IP
 # ---------------------------
 # 7. Run Benchmarks
 # ---------------------------
-echo "Running Benchmarks on VM..."
+echo "Running Benchmarks on VM (inside screen session 'benchmark')..."
 ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@$IP_ADDRESS" "
-    export PATH=\$PATH:/usr/local/go/bin:~/go/bin:/usr/local/bin
-    cd ~/azs3-proxy
-    # Ensure .env exists (it was in the tarball)
-    if [ ! -f .env ]; then echo 'Warning: .env missing!'; ls -la; exit 1; fi
-    
-    source .env
-    bash test/benchmarking/warp-test.sh
+    # Install screen and nload if not present
+    if ! command -v screen &> /dev/null || ! command -v nload &> /dev/null; then
+        echo 'Installing screen and nload...'
+        sudo apt-get update && sudo apt-get install -y screen nload
+    fi
+
+    # Check for existing session
+    if screen -list | grep -q \"benchmark\"; then
+         echo \"Session 'benchmark' found. Reconnecting...\"
+         sleep 2
+         screen -r -x benchmark -p 0
+    else
+         echo \"No 'benchmark' session found. Starting new one...\"
+         echo '
+            export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:~/go/bin
+            cd ~/azs3-proxy
+            if [ ! -f .env ]; then echo \"Warning: .env missing!\"; ls -la; exit 1; fi
+            source .env
+            echo \"Running test script: $TEST_SCRIPT\"
+            bash test/benchmarking/$TEST_SCRIPT
+            echo \"Benchmark Finished. Press Enter to exit screen session.\"
+            read
+            read
+        ' > ~/run_benchmark.sh
+        chmod +x ~/run_benchmark.sh
+
+        # Start a detached session named 'benchmark' if it doesn't exist, running our script
+        screen -dmS benchmark -t script bash ~/run_benchmark.sh
+        
+        # Add monitoring windows
+        screen -S benchmark -X screen -t cpu bash -c 'top'
+        screen -S benchmark -X screen -t network bash -c 'nload eth0 -i 12000 -o 12000'
+
+        # Select window 0
+        screen -S benchmark -X select 0
+
+        # Attach to the session
+        screen -r benchmark -p 0
+    fi
 "
 
 echo "========================================================"

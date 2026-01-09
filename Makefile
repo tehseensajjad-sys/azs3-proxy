@@ -49,8 +49,8 @@ lint:
 
 clean:
 	go clean
-	rm -rf bin
 	rm -rf azs3-proxy
+	rm -rf *.log *.zst *.pid warp_runs/ 
 
 docker-build:
 	docker build -t $(DOCKER_IMAGE):$(VERSION) .

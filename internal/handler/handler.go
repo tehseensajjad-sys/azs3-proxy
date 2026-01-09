@@ -366,7 +366,7 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 		cw := &countingWriter{}
 		teeReader := io.TeeReader(reader, cw)
-		err = h.backend.PutObject(r.Context(), bucket, key, teeReader)
+		err = h.backend.PutObject(r.Context(), bucket, key, contentLength, teeReader)
 		// Log bytes read by backend for diagnostics
 		h.logger.Info("putobject bytes read by backend",
 			zap.String("bucket", bucket),

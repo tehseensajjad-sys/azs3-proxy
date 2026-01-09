@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -37,8 +36,7 @@ func (r *readSeekCloser) Close() error {
 // It handles all blob operations, multipart uploads, and bucket versioning.
 type AzureBlobBackend struct {
 	client                *azblob.Client                      // Azure Blob Storage client
-	containerClients      map[string]*container.Client        // Cache for container clients
-	containerClientsMutex sync.RWMutex                        // Thread-safe access to container clients
+	containerClients      sync.Map                            // Cache for container clients (bucketName -> *container.Client)
 	multipartUploads      map[string]*MultipartUploadMetadata // Ongoing multipart uploads
 	multipartUploadsMutex sync.RWMutex                        // Thread-safe access to multipart uploads
 	versionedBuckets      map[string]bool                     // Tracks buckets with versioning enabled
@@ -71,7 +69,6 @@ func NewAzureBlobBackend(connectionString string) (*AzureBlobBackend, error) {
 
 	return &AzureBlobBackend{
 		client:           client,
-		containerClients: make(map[string]*container.Client),
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 		versionedBuckets: make(map[string]bool),
 	}, nil
@@ -141,7 +138,6 @@ func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 
 	return &AzureBlobBackend{
 		client:           client,
-		containerClients: make(map[string]*container.Client),
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 		versionedBuckets: make(map[string]bool),
 		logger:           logger,
@@ -149,26 +145,16 @@ func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 	}, nil
 }
 
-// getContainerClient returns a cached container client or creates a new one
+// getContainerClient returns a new container client.
+// We cache these using sync.Map to avoid lock contention on hot paths.
 func (ab *AzureBlobBackend) getContainerClient(bucketName string) *container.Client {
-	ab.containerClientsMutex.RLock()
-	client, ok := ab.containerClients[bucketName]
-	ab.containerClientsMutex.RUnlock()
-	if ok {
-		return client
+	if client, ok := ab.containerClients.Load(bucketName); ok {
+		return client.(*container.Client)
 	}
 
-	ab.containerClientsMutex.Lock()
-	defer ab.containerClientsMutex.Unlock()
-
-	// Double check
-	if client, ok := ab.containerClients[bucketName]; ok {
-		return client
-	}
-
-	client = ab.client.ServiceClient().NewContainerClient(bucketName)
-	ab.containerClients[bucketName] = client
-	return client
+	newClient := ab.client.ServiceClient().NewContainerClient(bucketName)
+	actual, _ := ab.containerClients.LoadOrStore(bucketName, newClient)
+	return actual.(*container.Client)
 }
 
 // ListBuckets returns all containers in the Azure Blob Storage account.
@@ -235,15 +221,26 @@ func (ab *AzureBlobBackend) DeleteBucket(ctx context.Context, bucketName string)
 	return nil
 }
 
-func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey string, data io.Reader) (err error) {
+func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (err error) {
 	defer func() { ab.recordAzureRequest(ctx, "PutObject", err) }()
 
-	// Tune UploadStream to reduce memory usage
-	// Default BlockSize is 8MB, Concurrency is 5.
-	// Using 8MB block size as requested, but keeping concurrency low to avoid OOM.
+	// Tune UploadStream options based on object size
+	concurrency := 16                   // Default for large files to maximize throughput
+	blockSize := int64(8 * 1024 * 1024) // 8MB
+
+	if size > 0 {
+		if size <= blockSize {
+			// Single block - no concurrency needed
+			concurrency = 1
+		} else if size < 64*1024*1024 {
+			// Small/Medium file - reduce concurrency overhead
+			concurrency = 4
+		}
+	}
+
 	options := &blockblob.UploadStreamOptions{
-		BlockSize:   8 * 1024 * 1024, // 8MB
-		Concurrency: 2,
+		BlockSize:   blockSize,
+		Concurrency: concurrency,
 	}
 
 	_, err = ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey).UploadStream(ctx, data, options)
@@ -269,7 +266,7 @@ func (ab *AzureBlobBackend) CopyObject(ctx context.Context, srcBucket, srcKey, d
 	defer func() { _ = srcInfo.Body.Close() }()
 
 	// 2. Put to destination
-	err = ab.PutObject(ctx, destBucket, destKey, srcInfo.Body)
+	err = ab.PutObject(ctx, destBucket, destKey, srcInfo.Size, srcInfo.Body)
 	if err != nil {
 		return fmt.Errorf("failed to upload destination object for copy: %w", err)
 	}
@@ -409,28 +406,22 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 		return "", fmt.Errorf("upload ID does not match bucket/key")
 	}
 
-	// Buffer to temp file instead of memory to avoid OOM
-	tmpFile, err := os.CreateTemp("", "azs3-proxy-part-*")
+	// Read part data into memory to prevent disk I/O bottleneck
+	// Assuming sufficient RAM (D16s_v5 has 64GB)
+	partData, err := io.ReadAll(data)
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
-
-	if _, err := io.Copy(tmpFile, data); err != nil {
-		return "", fmt.Errorf("failed to write part data to temp file: %w", err)
+		return "", fmt.Errorf("failed to read part data: %w", err)
 	}
 
-	if _, err := tmpFile.Seek(0, 0); err != nil {
-		return "", fmt.Errorf("failed to seek temp file: %w", err)
-	}
+	// Create a seekable reader for the Azure SDK
+	reader := &readSeekCloser{bytes.NewReader(partData)}
 
 	// Create a block ID based on part number (base64 encoded)
 	blockID := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%010d", partNumber)))
 
-	// Stage the block in Azure using the temp file
+	// Stage the block in Azure using the in-memory buffer
 	// We do NOT hold the global lock here to allow concurrent uploads
-	_, err = upload.BlockBlobClient.StageBlock(ctx, blockID, tmpFile, nil)
+	_, err = upload.BlockBlobClient.StageBlock(ctx, blockID, reader, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to stage block: %w", err)
 	}

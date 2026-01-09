@@ -9,6 +9,8 @@ packages:
   - curl
   - htop
   - unzip
+  - docker.io
+  - screen
 
 runcmd:
   # Install Go (latest stable)
@@ -30,3 +32,14 @@ runcmd:
 
   # Signal completion
   - touch /tmp/cloud-init-complete
+
+  # Add current user to 'docker' group
+  - usermod -aG docker $USER
+
+  # Apply group change without a full logout (works in many shells)
+  - newgrp docker
+  
+  # Verify
+  - id -nG
+  - docker ps
+

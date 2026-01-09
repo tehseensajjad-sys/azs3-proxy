@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -116,6 +117,14 @@ func main() {
 	defer func() { _ = logger.Sync() }()
 
 	logger.Info("starting azs3-proxy", zap.String("version", version.Version))
+
+	// Start pprof server for profiling
+	go func() {
+		logger.Info("starting pprof server on localhost:6060")
+		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+			logger.Error("pprof server error", zap.Error(err))
+		}
+	}()
 
 	// Initialize telemetry manager for metrics and logs export.
 	ctx := context.Background()

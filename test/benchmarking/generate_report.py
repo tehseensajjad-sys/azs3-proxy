@@ -25,6 +25,8 @@ def main():
     workdir = sys.argv[1]
     # Look for .csv.zst or .csv.zst.json.zst files
     files = glob.glob(os.path.join(workdir, "proxy-*.csv.zst"))
+    if not files:
+        files = glob.glob(os.path.join(workdir, "proxy-*.csv.zst.json.zst"))
     
     if not files:
         print(f"No benchmark files found in {workdir}")
@@ -43,8 +45,7 @@ def main():
          if os.path.exists(candidate):
              warp_bin = candidate
          else:
-             print("Could not find warp binary")
-             sys.exit(1)
+             print("Warning: Could not find warp binary. If processing raw .csv.zst files, this will fail.")
 
     log("# Benchmark Summary Report\n")
     log("| Workload | Concurrency | Throughput (Avg) | Objects/sec (Avg) | Total Requests | Duration |")
@@ -58,9 +59,11 @@ def main():
     for f in files:
         basename = os.path.basename(f)
         # expected format: proxy-{workload}-c{concurrency}.csv.zst
-        # or proxy-{workload}.csv.zst (legacy)
+        # or proxy-{workload}-c{concurrency}.csv.zst.json.zst
         
-        core_name = basename.replace("proxy-", "").replace(".csv.zst", "")
+        is_precomputed = f.endswith(".json.zst")
+        core_name = basename.replace("proxy-", "").replace(".csv.zst.json.zst", "").replace(".csv.zst", "")
+
         # Try parse concurrency
         match = re.search(r"(.*)-c(\d+)$", core_name)
         if match:
@@ -70,7 +73,11 @@ def main():
             workload_name = core_name
             concurrency = "N/A"
         
-        cmd = [warp_bin, "analyze", "--json", f]
+        if is_precomputed:
+             cmd = ["zstd", "-dc", f]
+        else:
+             cmd = [warp_bin, "analyze", "--json", f]
+
         try:
             p = subprocess.run(cmd, capture_output=True, text=True, check=True)
             data = json.loads(p.stdout)

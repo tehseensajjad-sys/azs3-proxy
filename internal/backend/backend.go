@@ -49,7 +49,7 @@ type StorageBackend interface {
 	HeadBucket(ctx context.Context, bucketName string) (bool, error)
 
 	// Object operations
-	PutObject(ctx context.Context, bucketName, objectKey string, data io.Reader) error
+	PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error
 	CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error
 	GetObject(ctx context.Context, bucketName, objectKey string) (ObjectInfo, error)
 	DeleteObject(ctx context.Context, bucketName, objectKey string) error

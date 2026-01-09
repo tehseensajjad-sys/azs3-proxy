@@ -77,4 +77,8 @@ for CONCURRENT in 8 16 64; do
 done
 
 log "Done. Results in $PWD"
-ls -lh proxy-*.csv.zst
+ls -lh proxy-*.csv.zst*
+
+log "Generating report..."
+/bin/python3 "$SCRIPT_DIR/generate_report.py" "$PWD"
+

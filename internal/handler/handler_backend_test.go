@@ -29,10 +29,9 @@ func (f *fakeBackend) HeadBucket(ctx context.Context, bucketName string) (bool, 
 }
 func (f *fakeBackend) CreateBucket(ctx context.Context, bucketName string) error { return nil }
 func (f *fakeBackend) DeleteBucket(ctx context.Context, bucketName string) error { return nil }
-func (f *fakeBackend) PutObject(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
-	if data != nil {
-		_, _ = io.Copy(io.Discard, data)
-	}
+func (f *fakeBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
+	// Drain the reader to simulate upload
+	_, _ = io.Copy(io.Discard, data)
 	return f.putObjectErr
 }
 func (f *fakeBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error {
