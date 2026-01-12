@@ -195,7 +195,7 @@ ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@
         
         # Add monitoring windows
         screen -S benchmark -X screen -t cpu bash -c 'top'
-        screen -S benchmark -X screen -t network bash -c 'nload eth0 -i 12000 -o 12000'
+        screen -S benchmark -X screen -t network bash -c 'nload eth0 -i 12000000 -o 12000000'
 
         # Select window 0
         screen -S benchmark -X select 0

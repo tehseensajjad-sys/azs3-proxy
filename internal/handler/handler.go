@@ -362,6 +362,11 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		// which adds metadata to the body. We need to decode it.
 		if r.Header.Get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
 			reader = NewAwsChunkedReader(r.Body)
+			if decodedLenStr := r.Header.Get("x-amz-decoded-content-length"); decodedLenStr != "" {
+				if parsedLen, err := strconv.ParseInt(decodedLenStr, 10, 64); err == nil {
+					contentLength = parsedLen
+				}
+			}
 		}
 
 		cw := &countingWriter{}
@@ -831,7 +836,12 @@ func (h *S3Handler) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	partNumber = partNum
 
-	etag, err := h.backend.UploadPart(r.Context(), bucket, key, uploadID, partNumber, r.Body)
+	var reader io.Reader = r.Body
+	if r.Header.Get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
+		reader = NewAwsChunkedReader(r.Body)
+	}
+
+	etag, err := h.backend.UploadPart(r.Context(), bucket, key, uploadID, partNumber, reader)
 	if err != nil {
 		h.logger.Error("failed to upload part", zap.Error(err))
 		h.stats.RecordUploadPart(false)

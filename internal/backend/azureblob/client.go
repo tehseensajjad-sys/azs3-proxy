@@ -224,18 +224,35 @@ func (ab *AzureBlobBackend) DeleteBucket(ctx context.Context, bucketName string)
 func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (err error) {
 	defer func() { ab.recordAzureRequest(ctx, "PutObject", err) }()
 
+	blobClient := ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey)
+
+	// Optimization: For small objects, read into memory and use UploadBuffer
+	// This avoids UploadStream overhead and enables single-shot PutBlob optimization.
+	// Threshold: 256MB (Safe for D16 memory, and below common PutBlob blocks limits)
+	const memoryUploadThreshold = 256 * 1024 * 1024
+
+	if size > 0 && size <= memoryUploadThreshold {
+		// Read entire body into memory
+		buf := make([]byte, size)
+		_, err := io.ReadFull(data, buf)
+		if err != nil {
+			return fmt.Errorf("failed to read body into memory: %w", err)
+		}
+
+		_, err = blobClient.UploadBuffer(ctx, buf, nil)
+		if err != nil {
+			return fmt.Errorf("upload buffer failed: %w", err)
+		}
+		return nil
+	}
+
+	// Fallback for larger files or unknown size
 	// Tune UploadStream options based on object size
 	concurrency := 16                   // Default for large files to maximize throughput
 	blockSize := int64(8 * 1024 * 1024) // 8MB
 
-	if size > 0 {
-		if size <= blockSize {
-			// Single block - no concurrency needed
-			concurrency = 1
-		} else if size < 64*1024*1024 {
-			// Small/Medium file - reduce concurrency overhead
-			concurrency = 4
-		}
+	if size > 0 && size < 64*1024*1024 {
+		concurrency = 4
 	}
 
 	options := &blockblob.UploadStreamOptions{
@@ -243,9 +260,9 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 		Concurrency: concurrency,
 	}
 
-	_, err = ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey).UploadStream(ctx, data, options)
+	_, err = blobClient.UploadStream(ctx, data, options)
 	if err != nil {
-		return fmt.Errorf("upload blob failed: %w", err)
+		return fmt.Errorf("upload stream failed: %w", err)
 	}
 	return nil
 }
@@ -351,11 +368,7 @@ func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey
 	if err != nil {
 		return info, fmt.Errorf("get blob properties failed: %w", err)
 	}
-	resp, err := blobClient.DownloadStream(ctx, nil)
-	if err != nil {
-		return info, fmt.Errorf("download blob failed: %w", err)
-	}
-	info.Body = resp.Body
+
 	if props.LastModified != nil {
 		info.LastModified = props.LastModified.UTC()
 	} else {
@@ -364,6 +377,19 @@ func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey
 	if props.ContentLength != nil {
 		info.Size = *props.ContentLength
 	}
+
+	// Use DownloadStream for all files.
+	// For small files (e.g. 1MB), DownloadBuffer adds significant memory allocation overhead (runtime.mallocgc)
+	// which degrades performance under high load. Streaming is more efficient for the proxy.
+	// Note: DownloadStream in the current SDK is single-threaded. For very large files,
+	// we might need a custom concurrent range-reader if single-stream throughput is insufficient.
+	options := &azblob.DownloadStreamOptions{}
+
+	resp, err := blobClient.DownloadStream(ctx, options)
+	if err != nil {
+		return info, fmt.Errorf("download blob failed: %w", err)
+	}
+	info.Body = resp.Body
 	return info, nil
 }
 

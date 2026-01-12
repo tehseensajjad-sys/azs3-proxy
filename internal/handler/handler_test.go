@@ -51,7 +51,7 @@ type MockBackend struct {
 	ListBucketsFunc             func(ctx context.Context) ([]string, error)
 	CreateBucketFunc            func(ctx context.Context, bucketName string) error
 	DeleteBucketFunc            func(ctx context.Context, bucketName string) error
-	PutObjectFunc               func(ctx context.Context, bucketName, objectKey string, data io.Reader) error
+	PutObjectFunc               func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error
 	CopyObjectFunc              func(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error
 	GetObjectFunc               func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error)
 	DeleteObjectFunc            func(ctx context.Context, bucketName, objectKey string) error
@@ -107,9 +107,9 @@ func (m *MockBackend) DeleteBucket(ctx context.Context, bucketName string) error
 	return nil
 }
 
-func (m *MockBackend) PutObject(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
+func (m *MockBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
 	if m.PutObjectFunc != nil {
-		return m.PutObjectFunc(ctx, bucketName, objectKey, data)
+		return m.PutObjectFunc(ctx, bucketName, objectKey, size, data)
 	}
 	return nil
 }
@@ -447,7 +447,7 @@ func TestListObjectsV2Handler(t *testing.T) {
 
 func TestPutObjectHandler(t *testing.T) {
 	mockBackend := &MockBackend{
-		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
 			return nil
 		},
 	}
@@ -1225,7 +1225,7 @@ func TestGetObjectHandler_Error(t *testing.T) {
 // TestPutObjectHandler_Error tests error handling in PutObject
 func TestPutObjectHandler_Error(t *testing.T) {
 	mockBackend := &MockBackend{
-		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
 			return errors.New("upload failed")
 		},
 	}
@@ -1545,7 +1545,7 @@ func TestGetObjectHandler_Success(t *testing.T) {
 // TestPutObjectHandler_Success tests successful object upload
 func TestPutObjectHandler_Success(t *testing.T) {
 	mockBackend := &MockBackend{
-		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
 			return nil
 		},
 	}
@@ -1741,7 +1741,7 @@ func TestPutObjectHandler_WithCache(t *testing.T) {
 	defer func() { _ = cm.Close() }()
 
 	backend := &MockBackend{
-		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, data io.Reader) error {
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
 			return nil
 		},
 	}

@@ -60,6 +60,7 @@ func main() {
 	foreground := flag.Bool("foreground", false, "Run in foreground")
 	stop := flag.Bool("stop", false, "Stop the running daemon")
 	versionFlag := flag.Bool("version", false, "Print version and exit")
+	pprof := flag.Bool("pprof", false, "Enable pprof profiling server on localhost:6060")
 	flag.Parse()
 
 	if *versionFlag {
@@ -118,13 +119,15 @@ func main() {
 
 	logger.Info("starting azs3-proxy", zap.String("version", version.Version))
 
-	// Start pprof server for profiling
-	go func() {
-		logger.Info("starting pprof server on localhost:6060")
-		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
-			logger.Error("pprof server error", zap.Error(err))
-		}
-	}()
+	// Start pprof server for profiling if enabled
+	if *pprof {
+		go func() {
+			logger.Info("starting pprof server on localhost:6060")
+			if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+				logger.Error("pprof server error", zap.Error(err))
+			}
+		}()
+	}
 
 	// Initialize telemetry manager for metrics and logs export.
 	ctx := context.Background()
