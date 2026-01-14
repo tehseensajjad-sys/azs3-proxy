@@ -382,14 +382,23 @@ func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey
 	// For small files (e.g. 1MB), DownloadBuffer adds significant memory allocation overhead (runtime.mallocgc)
 	// which degrades performance under high load. Streaming is more efficient for the proxy.
 	// Note: DownloadStream in the current SDK is single-threaded. For very large files,
-	// we might need a custom concurrent range-reader if single-stream throughput is insufficient.
-	options := &azblob.DownloadStreamOptions{}
+	// we utilize a custom concurrent range-reader.
 
-	resp, err := blobClient.DownloadStream(ctx, options)
-	if err != nil {
-		return info, fmt.Errorf("download blob failed: %w", err)
+	const concurrentDownloadThreshold = 64 * 1024 * 1024 // 64 MB
+
+	if info.Size > concurrentDownloadThreshold {
+		// Use concurrent reader
+		// Using 16 concurrent streams with 8MB chunks
+		info.Body = newConcurrentReader(ctx, blobClient, info.Size, 16, 8*1024*1024)
+	} else {
+		options := &azblob.DownloadStreamOptions{}
+		resp, err := blobClient.DownloadStream(ctx, options)
+		if err != nil {
+			return info, fmt.Errorf("download blob failed: %w", err)
+		}
+		info.Body = resp.Body
 	}
-	info.Body = resp.Body
+
 	return info, nil
 }
 
@@ -416,7 +425,7 @@ func (ab *AzureBlobBackend) InitiateMultipartUpload(ctx context.Context, bucketN
 	return uploadID, nil
 } // UploadPart uploads a single part of a multipart upload
 // Thread-safe: holds lock throughout to prevent concurrent block loss
-func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (etag string, err error) {
+func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, size int64, data io.Reader) (etag string, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "UploadPart", err) }()
 
 	// Validate upload exists first (before reading data)
@@ -432,18 +441,39 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 		return "", fmt.Errorf("upload ID does not match bucket/key")
 	}
 
-	// Read part data into memory to prevent disk I/O bottleneck
-	// Assuming sufficient RAM (D16s_v5 has 64GB)
-	partData, err := io.ReadAll(data)
-	if err != nil {
-		return "", fmt.Errorf("failed to read part data: %w", err)
-	}
-
-	// Create a seekable reader for the Azure SDK
-	reader := &readSeekCloser{bytes.NewReader(partData)}
-
-	// Create a block ID based on part number (base64 encoded)
+	// Calculate block ID based on part number
 	blockID := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%010d", partNumber)))
+
+	var reader io.ReadSeekCloser
+
+	// If size is known and reasonable, read into memory to create a seeker.
+	// This avoids io.ReadAll growing the slice dynamically.
+	// 100MB * 16 concurrency = 1.6GB RAM. Acceptable.
+	// Use 256MB threshold similar to PutObject.
+	const memoryStageThreshold = 256 * 1024 * 1024
+
+	if size > 0 && size <= memoryStageThreshold {
+		buf := make([]byte, size)
+		_, err := io.ReadFull(data, buf)
+		if err != nil {
+			return "", fmt.Errorf("failed to read part body: %w", err)
+		}
+		reader = &readSeekCloser{bytes.NewReader(buf)}
+	} else {
+		// Fallback for unknown size or huge parts.
+		// WARNING: io.ReadAll will happen here if we don't have size, as we can't preallocate.
+		// If size is huge > 256MB, we still risk OOM with io.ReadAll.
+		// But usually parts are ~100MB or less.
+		// If size IS huge, Azure StageBlock might fail if we can't seek.
+		// We'll trust io.ReadAll for now as fallback.
+
+		// Note: The previous implementation used io.ReadAll unconditionally.
+		partData, err := io.ReadAll(data)
+		if err != nil {
+			return "", fmt.Errorf("failed to read part data: %w", err)
+		}
+		reader = &readSeekCloser{bytes.NewReader(partData)}
+	}
 
 	// Stage the block in Azure using the in-memory buffer
 	// We do NOT hold the global lock here to allow concurrent uploads

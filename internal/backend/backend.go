@@ -62,7 +62,7 @@ type StorageBackend interface {
 
 	// Multipart upload operations
 	InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (uploadID string, err error)
-	UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (etag string, err error)
+	UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, size int64, data io.Reader) (etag string, err error)
 	CompleteMultipartUpload(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (etag string, err error)
 	AbortMultipartUpload(ctx context.Context, bucketName, objectKey, uploadID string) error
 	ListParts(ctx context.Context, bucketName, objectKey, uploadID string) ([]interface{}, error)
