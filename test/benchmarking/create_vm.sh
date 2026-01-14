@@ -178,7 +178,7 @@ ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@
     else
          echo \"No 'benchmark' session found. Starting new one...\"
          echo '
-            export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:~/go/bin
+            export PATH=/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:~/go/bin
             cd ~/azs3-proxy
             if [ ! -f .env ]; then echo \"Warning: .env missing!\"; ls -la; exit 1; fi
             source .env
