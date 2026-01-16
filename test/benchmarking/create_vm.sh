@@ -201,7 +201,7 @@ ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@
         screen -S benchmark -X select 0
 
         # Attach to the session
-        screen -r benchmark -p 0
+        # screen -r benchmark -p 0
     fi
 "
 

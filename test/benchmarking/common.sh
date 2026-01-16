@@ -208,26 +208,48 @@ ensure_bucket() {
 # Install/Update WARP
 # ---------------------------
 install_warp() {
-  log "Fetching latest WARP release info..."
-  # GitHub "latest release" endpoint redirects to the current tag
-  LATEST_TAG="$(curl -fsSLI https://github.com/minio/warp/releases/latest | awk -F'/' '/^location:/ {print $NF}' | tr -d '\r')"
-  if [[ -z "$LATEST_TAG" ]]; then
-    echo "Failed to detect latest WARP tag"
-    exit 1
-  fi
-
-  log "Latest WARP tag : $LATEST_TAG"
-
-  WARP_URL="https://github.com/minio/warp/releases/download/${LATEST_TAG}/${WARP_ASSET}"
-  log "Downloading     : $WARP_URL"
+  local version="${WARP_VERSION:-v1.4.0}"
+  
+  log "Using WARP version: $version"
 
   TMPDIR="$(mktemp -d)"
 
-  curl -fL "$WARP_URL" -o "$TMPDIR/$WARP_ASSET"
-  tar -xzf "$TMPDIR/$WARP_ASSET" -C "$TMPDIR"
+  if [[ "$version" == "v1.4.0" ]]; then
+       # MinIO warp v1.4.0 is distributed as a binary on dl.min.io
+       case "$ARCH" in
+        x86_64|amd64) 
+            WARP_URL="https://dl.min.io/aistor/warp/release/linux-amd64/archive/warp.${version}" 
+            ;;
+        aarch64|arm64) 
+            WARP_URL="https://dl.min.io/aistor/warp/release/linux-arm64/archive/warp.${version}" 
+            ;;
+        *)
+            echo "Unsupported arch for v1.4.0: $ARCH"
+            exit 1
+            ;;
+       esac
 
-  # The tar contains a 'warp' binary
+       log "Downloading binary : $WARP_URL"
+       if ! curl -fL "$WARP_URL" -o "$TMPDIR/warp"; then
+           echo "Failed to download WARP from $WARP_URL"
+           exit 1
+       fi
+  else
+      # Legacy behavior (e.g. v0.7.6) uses GitHub releases with tarballs
+      WARP_URL="https://github.com/minio/warp/releases/download/${version}/${WARP_ASSET}"
+      log "Downloading tarball : $WARP_URL"
+
+      if ! curl -fL "$WARP_URL" -o "$TMPDIR/$WARP_ASSET"; then
+           echo "Failed to download WARP from $WARP_URL. Check version and asset name."
+           exit 1
+      fi
+
+      tar -xzf "$TMPDIR/$WARP_ASSET" -C "$TMPDIR"
+  fi
+
+  # The tar contains a 'warp' binary, or we downloaded it directly
   chmod +x "$TMPDIR/warp"
+
 
   log "Installing warp -> $INSTALL_DIR/warp (may require sudo)..."
   if [[ -w "$INSTALL_DIR" ]]; then

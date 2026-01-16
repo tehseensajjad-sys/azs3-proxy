@@ -74,13 +74,13 @@ def main():
             concurrency = "N/A"
         
         name_mapping = {
-            "get-100MiB": "Large Download",
-            "get-10MiB": "Download",
-            "mixed-1MiB": "Mixed Ops",
-            "put-10MiB": "Upload",
-            "put-100MiB": "Large Upload",
-            "put-2GiB": "Very Large Upload",
-            "small-put-128KiB": "Small Objects"
+            "get-100MiB": "Download 100MiB",
+            "get-10MiB": "Download 10MiB",
+            "mixed-1MiB": "Mixed Ops 1MiB",
+            "put-10MiB": "Upload 10MiB",
+            "put-100MiB": "Large Upload 100MiB",
+            "put-2GiB": "Very Large Upload 2GiB",
+            "small-put-128KiB": "Small Objects 128KiB"
         }
         
         display_name = name_mapping.get(workload_name, workload_name)
