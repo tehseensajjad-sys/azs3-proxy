@@ -76,8 +76,10 @@ def main():
         name_mapping = {
             "get-100MiB": "Large Download",
             "get-10MiB": "Download",
-            "put-10MiB": "Upload",
             "mixed-1MiB": "Mixed Ops",
+            "put-10MiB": "Upload",
+            "put-100MiB": "Large Upload",
+            "put-2GiB": "Very Large Upload",
             "small-put-128KiB": "Small Objects"
         }
         
