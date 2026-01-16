@@ -369,13 +369,15 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 		err = h.backend.CopyObject(r.Context(), srcBucket, srcKey, bucket, key)
 	} else {
-		var reader io.Reader = r.Body
+		// Optimization: Wrap requests body in a buffered reader to minimize read syscalls from the network.
+		// Use a large buffer (1MB) to match the write path optimization.
+		var reader io.Reader = bufio.NewReaderSize(r.Body, 1024*1024)
 		var finalSize int64 = contentLength
 
 		// unexpected stat size from warp usually means it uses streaming signature
 		// which adds metadata to the body. We need to decode it.
 		if r.Header.Get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
-			reader = NewAwsChunkedReader(r.Body)
+			reader = NewAwsChunkedReader(reader) // AwsChunkedReader now reads from bufio
 			if decodedLenStr := r.Header.Get("x-amz-decoded-content-length"); decodedLenStr != "" {
 				if parsedLen, err := strconv.ParseInt(decodedLenStr, 10, 64); err == nil {
 					finalSize = parsedLen

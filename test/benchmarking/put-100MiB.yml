@@ -1,8 +1,8 @@
 
-# file: get-1MiB.yml
+# file: put-1MiB.yml
 warp:
   api: v1
-  benchmark: get
+  benchmark: put
 
   quiet: false
   no-color: false
@@ -21,6 +21,9 @@ warp:
     duration: 300s
     concurrent: {{.Concurrent}}
 
+    # PUT vs POST Object toggle
+    post: false
+
     obj:
-      size: 1MiB
+      size: 100MiB
       rand-size: false

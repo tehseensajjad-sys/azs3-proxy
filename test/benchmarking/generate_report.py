@@ -7,15 +7,15 @@ import re
 import subprocess
 import dateutil.parser
 
-def format_bytes(size):
+def format_bits(size):
     power = 2**10
-    n = size
+    n = size * 8
     power_labels = {0 : '', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti'}
     loop = 0
     while n > power:
         n /= power
         loop += 1
-    return f"{n:.2f} {power_labels[loop]}B"
+    return f"{n:.2f} {power_labels[loop]}b"
 
 def main():
     if len(sys.argv) < 2:
@@ -48,8 +48,8 @@ def main():
              print("Warning: Could not find warp binary. If processing raw .csv.zst files, this will fail.")
 
     log("# Benchmark Summary Report\n")
-    log("| Workload | Concurrency | Throughput (Avg) | Objects/sec (Avg) | Total Requests | Duration |")
-    log("| :--- | :--- | :--- | :--- | :--- | :--- |")
+    # log("| Workload | Concurrency | Throughput (Avg) | Objects/sec (Avg) | Total Requests | Duration |")
+    # log("| :--- | :--- | :--- | :--- | :--- | :--- |")
 
     results = []
 
@@ -72,6 +72,16 @@ def main():
         else:
             workload_name = core_name
             concurrency = "N/A"
+        
+        name_mapping = {
+            "get-100MiB": "Large Download",
+            "get-10MiB": "Download",
+            "put-10MiB": "Upload",
+            "mixed-1MiB": "Mixed Ops",
+            "small-put-128KiB": "Small Objects"
+        }
+        
+        display_name = name_mapping.get(workload_name, workload_name)
         
         if is_precomputed:
              cmd = ["zstd", "-dc", f]
@@ -101,32 +111,47 @@ def main():
             avg_bps = total_bytes / duration_sec if duration_sec > 0 else 0
             avg_ops = reqs / duration_sec if duration_sec > 0 else 0
             
-            tput_str = format_bytes(avg_bps) + "/s"
+            tput_str = format_bits(avg_bps) + "/s"
             ops_str = f"{avg_ops:.2f} obj/s"
             
-            log(f"| **{workload_name}** | {concurrency} | **{tput_str}** | **{ops_str}** | {reqs} | {duration_str} |")
-            
             results.append({
-                "name": workload_name,
+                "name": display_name,
                 "concurrency": concurrency,
-                "data": data,
                 "tput": tput_str,
-                "ops": ops_str
+                "ops": ops_str,
+                "reqs": reqs,
+                "duration": duration_str
             })
             
         except Exception as e:
-            log(f"| {basename} | {concurrency} | Error | {e} | - | - |")
+            print(f"Error processing {basename}: {e}")
 
-    log("\n---\n")
-    log("### Detailed Breakdown\n")
-
+    # Group results by concurrency
+    results_by_conc = {}
     for res in results:
-        name = res["name"]
-        conc = res["concurrency"]
-        tput = res["tput"]
-        log(f"#### {name} (Concurrency: {conc})")
-        log(f"* **Throughput:** {tput}")
-        log(f"* **Requests:** {res['ops']}")
+        c = res['concurrency']
+        if c not in results_by_conc:
+             results_by_conc[c] = []
+        results_by_conc[c].append(res)
+        
+    # Sort concurrencies numerically
+    def try_int(x):
+        try: return int(x)
+        except: return 999999
+        
+    sorted_concs = sorted(results_by_conc.keys(), key=try_int)
+    
+    for c in sorted_concs:
+        log(f"### Concurrency: {c}")
+        log("| Workload | Throughput (Avg) | Objects/sec (Avg) | Total Requests | Duration |")
+        log("| :--- | :--- | :--- | :--- | :--- |")
+        
+        # Sort by workload name
+        rows = sorted(results_by_conc[c], key=lambda x: x['name'])
+        
+        for row in rows:
+            log(f"| **{row['name']}** | **{row['tput']}** | **{row['ops']}** | {row['reqs']} | {row['duration']} |")
+        
         log("\n")
 
     with open("BENCHMARK_REPORT.md", "w") as report_file:

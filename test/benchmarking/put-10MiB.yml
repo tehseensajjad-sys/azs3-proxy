@@ -25,5 +25,5 @@ warp:
     post: false
 
     obj:
-      size: 1MiB
+      size: 10MiB
       rand-size: false

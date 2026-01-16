@@ -21,10 +21,22 @@ common_init
 # Run azs3-proxy benchmarks
 # ---------------------------
 
-for CONCURRENT in 8 16 64; do
+for CONCURRENT in 64 16 8; do
     log "---------------------------------------------------"
     log "Starting benchmarks with Concurrency: $CONCURRENT"
     log "---------------------------------------------------"
+
+    # Big 100 MiB
+    log "Running azs3-proxy Big 100 MiB benchmark (c=$CONCURRENT)..."
+    warp run "$SCRIPT_DIR/get-100MiB.yml" \
+      -var Host="$HOSTPORT" \
+      -var AccessKey="$ACCESS_KEY" \
+      -var SecretKey="$SECRET_KEY" \
+      -var Region="$REGION" \
+      -var Bucket="$BUCKET" \
+      -var TLS="$USE_TLS" \
+      -var Concurrent="$CONCURRENT" \
+      -var BenchData="proxy-get-100MiB-c${CONCURRENT}.csv.zst"
 
     # Mixed 1MiB
     log "Running azs3-proxy Mixed 1MiB benchmark (c=$CONCURRENT)..."
