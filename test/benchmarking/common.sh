@@ -2,6 +2,8 @@
 # Common setup and utility functions for benchmarking scripts
 # This script should be sourced by other benchmark scripts, not executed directly
 
+export PATH=$PATH:/usr/local/go/bin
+
 set -euo pipefail
 
 # ---------------------------
@@ -110,6 +112,15 @@ start_proxy() {
     exit 1
   fi
 
+  # Kill existing proxy on 8080 to prevent race condition
+  local old_pid
+  old_pid=$(lsof -ti :8080 2>/dev/null || true)
+  if [[ -n "$old_pid" ]]; then
+     echo "Killing old proxy (PID $old_pid)..."
+     kill -9 "$old_pid" 2>/dev/null || true
+     sleep 2
+  fi
+
   # Start in background
   (cd "$PROXY_ROOT" && make run) > "$WORKDIR/proxy.log" 2>&1 &
   MAKE_PID=$!
@@ -132,7 +143,35 @@ start_proxy() {
 }
 
 # ---------------------------
-# Monitor Proxy
+# Monitor Data Collection
+# ---------------------------
+start_collecting_metrics() {
+  local outfile="$1"
+  
+  if [[ -z "${PROXY_PID:-}" ]]; then
+      PROXY_PID=$(lsof -ti :8080 | head -n 1)
+  fi
+  
+  if [[ -z "${PROXY_PID:-}" ]]; then
+    log "Error: Proxy PID not foud, cannot start monitoring."
+    return
+  fi
+
+  log "Starting metrics collection -> $outfile (Proxy PID: $PROXY_PID)"
+  python3 "$SCRIPT_DIR/monitor_system.py" "$PROXY_PID" "$outfile" "eth0,lo" &
+  METRICS_PID=$!
+}
+
+stop_collecting_metrics() {
+  if [[ -n "${METRICS_PID:-}" ]]; then
+      kill "$METRICS_PID" 2>/dev/null || true
+      wait "$METRICS_PID" 2>/dev/null || true
+      unset METRICS_PID
+  fi
+}
+
+# ---------------------------
+# Monitor Proxy (Health)
 # ---------------------------
 start_proxy_monitor() {
   PROXY_PID=$(lsof -ti :8080 | head -n 1)
@@ -164,6 +203,9 @@ setup_cleanup() {
 }
 
 cleanup() {
+  if [[ -n "${METRICS_PID:-}" ]]; then
+    kill "$METRICS_PID" 2>/dev/null || true
+  fi
   if [[ -n "${MONITOR_PID:-}" ]]; then
     kill "$MONITOR_PID" 2>/dev/null || true
   fi

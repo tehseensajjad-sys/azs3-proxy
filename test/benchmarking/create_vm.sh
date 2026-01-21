@@ -177,21 +177,25 @@ ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@
          screen -r -x benchmark -p 0
     else
          echo \"No 'benchmark' session found. Starting new one...\"
-         echo '
+         
+         # Create a wrapper script that sets up the environment and runs the test
+         echo '#!/bin/bash
             export PATH=/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:~/go/bin
-            cd ~/azs3-proxy
-            if [ ! -f .env ]; then echo \"Warning: .env missing!\"; ls -la; exit 1; fi
-            source .env
+            cd ~/azs3-proxy/test/benchmarking
+            
+            # Ensure proper execution permissions
+            chmod +x *.sh *.py
+            
             echo \"Running test script: $TEST_SCRIPT\"
-            bash test/benchmarking/$TEST_SCRIPT
+            bash ./$TEST_SCRIPT
+            
             echo \"Benchmark Finished. Press Enter to exit screen session.\"
-            read
             read
         ' > ~/run_benchmark.sh
         chmod +x ~/run_benchmark.sh
 
-        # Start a detached session named 'benchmark' if it doesn't exist, running our script
-        screen -dmS benchmark -t script bash ~/run_benchmark.sh
+        # Start a detached session named 'benchmark' using the wrapper script
+        screen -dmS benchmark -t script bash -c \"~/run_benchmark.sh\"
         
         # Add monitoring windows
         screen -S benchmark -X screen -t cpu bash -c 'top'

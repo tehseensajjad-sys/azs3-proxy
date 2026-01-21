@@ -1,0 +1,26 @@
+
+# file: get-1MiB.yml
+warp:
+  api: v1
+  benchmark: get
+
+  quiet: false
+  no-color: false
+  json: false
+
+  region: "{{.Region}}"
+  access-key: "{{.AccessKey}}"
+  secret-key: "{{.SecretKey}}"
+  host: "{{.Host}}"
+  tls: {{.TLS}}
+
+  bucket: "{{.Bucket}}"
+  bench-data: "{{.BenchData}}"
+
+  params:
+    duration: 300s
+    concurrent: {{.Concurrent}}
+
+    obj:
+      size: 2GiB
+      rand-size: false

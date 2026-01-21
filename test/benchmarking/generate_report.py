@@ -17,8 +17,73 @@ def format_bits(size):
         loop += 1
     return f"{n:.2f} {power_labels[loop]}b"
 
+def parse_metrics(csv_path):
+    # Dynamic parsing based on header
+    if not os.path.exists(csv_path):
+        return {}
+    
+    cpu_vals = []
+    mem_vals = []
+    net_stats = {} # iface -> {'rx':[], 'tx':[]}
+    
+    with open(csv_path, 'r') as f:
+        lines = f.readlines()
+        if len(lines) < 2: return {}
+        
+        # Parse Header
+        headers = lines[0].strip().split(',')
+        col_map = {}
+        
+        for idx, h in enumerate(headers):
+            if h.startswith("net_rx_") and h.endswith("_bps"):
+                iface = h[7:-4]
+                col_map[idx] = ('rx', iface)
+                if iface not in net_stats: net_stats[iface] = {'rx':[], 'tx':[]}
+            elif h.startswith("net_tx_") and h.endswith("_bps"):
+                iface = h[7:-4]
+                col_map[idx] = ('tx', iface)
+                if iface not in net_stats: net_stats[iface] = {'rx':[], 'tx':[]}
+        
+        for line in lines[1:]:
+            parts = line.strip().split(',')
+            if len(parts) < 3: continue
+            
+            try:
+                # cpu, mem
+                cpu_vals.append(float(parts[1]))
+                mem_vals.append(float(parts[2]) / 1024.0) 
+                
+                for idx, val in enumerate(parts):
+                    if idx in col_map:
+                        t, iface = col_map[idx]
+                        # Convert Bytes/s to Bits/s
+                        net_stats[iface][t].append(float(val) * 8)
+            except:
+                continue
+                
+    if not cpu_vals: return {}
+    
+    def avg(lst): return sum(lst)/len(lst) if lst else 0
+    
+    res = {
+        "cpu_avg": avg(cpu_vals),
+        "cpu_max": max(cpu_vals) if cpu_vals else 0,
+        "mem_avg": avg(mem_vals),
+        "mem_max": max(mem_vals) if mem_vals else 0,
+        "network": {}
+    }
+    
+    for iface in net_stats:
+        res["network"][iface] = {
+            "rx_avg": avg(net_stats[iface]['rx']),
+            "tx_avg": avg(net_stats[iface]['tx'])
+        }
+    
+    return res
+
 def main():
     if len(sys.argv) < 2:
+
         print("Usage: python3 generate_report.py <path_to_zst_files>")
         sys.exit(1)
 
@@ -74,12 +139,15 @@ def main():
             concurrency = "N/A"
         
         name_mapping = {
-            "get-100MiB": "Download 100MiB",
+            "get-1MiB": "Download 1MiB",
             "get-10MiB": "Download 10MiB",
-            "mixed-1MiB": "Mixed Ops 1MiB",
+            "get-100MiB": "Download 100MiB",
+            "get-2GiB": "Download 2GiB",
+            "put-1MiB": "Upload 1MiB",
             "put-10MiB": "Upload 10MiB",
-            "put-100MiB": "Large Upload 100MiB",
-            "put-2GiB": "Very Large Upload 2GiB",
+            "put-100MiB": "Upload 100MiB",
+            "put-2GiB": "Upload 2GiB",
+            "mixed-1MiB": "Mixed Ops 1MiB",
             "small-put-128KiB": "Small Objects 128KiB"
         }
         
@@ -116,13 +184,22 @@ def main():
             tput_str = format_bits(avg_bps) + "/s"
             ops_str = f"{avg_ops:.2f} obj/s"
             
+            # Look for metrics file
+            # e.g. proxy-get-100MiB-c16.csv.zst.metrics.csv
+            # The benchmark file may be .csv.zst or .csv.zst.json.zst
+            # but metrics file is always based on .csv.zst name
+            base_for_metrics = f.replace(".json.zst", "")
+            metrics_file = base_for_metrics + ".metrics.csv"
+            metrics = parse_metrics(metrics_file)
+            
             results.append({
                 "name": display_name,
                 "concurrency": concurrency,
                 "tput": tput_str,
                 "ops": ops_str,
                 "reqs": reqs,
-                "duration": duration_str
+                "duration": duration_str,
+                "metrics": metrics
             })
             
         except Exception as e:
@@ -145,14 +222,55 @@ def main():
     
     for c in sorted_concs:
         log(f"### Concurrency: {c}")
-        log("| Workload | Throughput (Avg) | Objects/sec (Avg) | Total Requests | Duration |")
-        log("| :--- | :--- | :--- | :--- | :--- |")
+        log("| Workload | Throughput | Objects/sec | Proxy CPU (Avg) | Proxy Mem (Avg) | Net In (eth0) | Net Out (eth0) | Net In (lo) | Net Out (lo) |")
+        log("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
         
+        # Sort key helper
+        def sort_key(row):
+            name = row['name']
+            # Order: Download, Upload, Mixed, Others
+            type_order = 99
+            if name.startswith("Download"): type_order = 1
+            elif name.startswith("Upload"): type_order = 2
+            elif name.startswith("Mixed"): type_order = 3
+            elif name.startswith("Small"): type_order = 4
+            
+            # Extract size for sorting
+            size_val = 0
+            match = re.search(r"(\d+)(KiB|MiB|GiB)", name)
+            if match:
+                val = int(match.group(1))
+                unit = match.group(2)
+                if unit == "KiB": size_val = val * 1024
+                elif unit == "MiB": size_val = val * 1024**2
+                elif unit == "GiB": size_val = val * 1024**3
+                
+            return (type_order, size_val, name)
+
         # Sort by workload name
-        rows = sorted(results_by_conc[c], key=lambda x: x['name'])
+        rows = sorted(results_by_conc[c], key=sort_key)
         
         for row in rows:
-            log(f"| **{row['name']}** | **{row['tput']}** | **{row['ops']}** | {row['reqs']} | {row['duration']} |")
+            m = row.get('metrics', {})
+            cpu_s = f"{m.get('cpu_avg', 0):.1f}%" if m else "-"
+            mem_s = f"{m.get('mem_avg', 0):.0f} MiB" if m else "-"
+            
+            # format bits helpers
+            def quick_fmt(v):
+                if v == 0: return "-"
+                return format_bits(v / 8) + "/s" 
+            
+            net = m.get('network', {})
+            
+            eth0 = net.get('eth0', {})
+            eth0_rx = quick_fmt(eth0.get('rx_avg', 0))
+            eth0_tx = quick_fmt(eth0.get('tx_avg', 0))
+            
+            lo = net.get('lo', {})
+            lo_rx = quick_fmt(lo.get('rx_avg', 0))
+            lo_tx = quick_fmt(lo.get('tx_avg', 0))
+            
+            log(f"| **{row['name']}** | **{row['tput']}** | **{row['ops']}** | {cpu_s} | {mem_s} | {eth0_rx} | {eth0_tx} | {lo_rx} | {lo_tx} |")
         
         log("\n")
 

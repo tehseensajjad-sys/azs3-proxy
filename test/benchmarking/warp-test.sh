@@ -26,65 +26,30 @@ for CONCURRENT in 64 16 8; do
     log "Starting benchmarks with Concurrency: $CONCURRENT"
     log "---------------------------------------------------"
 
-    # Big 100 MiB
-    log "Running azs3-proxy Big 100 MiB benchmark (c=$CONCURRENT)..."
-    warp run "$SCRIPT_DIR/get-100MiB.yml" \
-      -var Host="$HOSTPORT" \
-      -var AccessKey="$ACCESS_KEY" \
-      -var SecretKey="$SECRET_KEY" \
-      -var Region="$REGION" \
-      -var Bucket="$BUCKET" \
-      -var TLS="$USE_TLS" \
-      -var Concurrent="$CONCURRENT" \
-      -var BenchData="proxy-get-100MiB-c${CONCURRENT}.csv.zst"
+    for TEST_FILE in "$SCRIPT_DIR"/*.yml; do
+        BASENAME=$(basename "$TEST_FILE")
+        # Ensure we skip if glob fails or matches non-files
+        if [[ ! -f "$TEST_FILE" ]]; then continue; fi
 
-    # Mixed 1MiB
-    log "Running azs3-proxy Mixed 1MiB benchmark (c=$CONCURRENT)..."
-    warp run "$SCRIPT_DIR/mixed-1MiB.yml" \
-      -var Host="$HOSTPORT" \
-      -var AccessKey="$ACCESS_KEY" \
-      -var SecretKey="$SECRET_KEY" \
-      -var Region="$REGION" \
-      -var Bucket="$BUCKET" \
-      -var TLS="$USE_TLS" \
-      -var Concurrent="$CONCURRENT" \
-      -var BenchData="proxy-mixed-1MiB-c${CONCURRENT}.csv.zst"
-
-    # PUT throughput 1MiB
-    log "Running azs3-proxy PUT 1MiB benchmark (c=$CONCURRENT)..."
-    warp run "$SCRIPT_DIR/put-1MiB.yml" \
-      -var Host="$HOSTPORT" \
-      -var AccessKey="$ACCESS_KEY" \
-      -var SecretKey="$SECRET_KEY" \
-      -var Region="$REGION" \
-      -var Bucket="$BUCKET" \
-      -var TLS="$USE_TLS" \
-      -var Concurrent="$CONCURRENT" \
-      -var BenchData="proxy-put-1MiB-c${CONCURRENT}.csv.zst"
-
-    # GET throughput 1MiB
-    log "Running azs3-proxy GET 1MiB benchmark (c=$CONCURRENT)..."
-    warp run "$SCRIPT_DIR/get-1MiB.yml" \
-      -var Host="$HOSTPORT" \
-      -var AccessKey="$ACCESS_KEY" \
-      -var SecretKey="$SECRET_KEY" \
-      -var Region="$REGION" \
-      -var Bucket="$BUCKET" \
-      -var TLS="$USE_TLS" \
-      -var Concurrent="$CONCURRENT" \
-      -var BenchData="proxy-get-1MiB-c${CONCURRENT}.csv.zst"
-
-    # Small 128KiB
-    log "Running azs3-proxy Small 128KiB benchmark (c=$CONCURRENT)..."
-    warp run "$SCRIPT_DIR/small-128KiB.yml" \
-      -var Host="$HOSTPORT" \
-      -var AccessKey="$ACCESS_KEY" \
-      -var SecretKey="$SECRET_KEY" \
-      -var Region="$REGION" \
-      -var Bucket="$BUCKET" \
-      -var TLS="$USE_TLS" \
-      -var Concurrent="$CONCURRENT" \
-      -var BenchData="proxy-small-put-128KiB-c${CONCURRENT}.csv.zst"
+        # Get test name without extension (e.g. get-100MiB)
+        TEST_NAME="${BASENAME%.yml}"
+        
+        BENCH_DATA="proxy-${TEST_NAME}-c${CONCURRENT}.csv.zst"
+        METRICS_FILE="${BENCH_DATA}.metrics.csv"
+        
+        log "Running azs3-proxy $TEST_NAME benchmark (c=$CONCURRENT)..."
+        start_collecting_metrics "$METRICS_FILE"
+        warp run "$TEST_FILE" \
+          -var Host="$HOSTPORT" \
+          -var AccessKey="$ACCESS_KEY" \
+          -var SecretKey="$SECRET_KEY" \
+          -var Region="$REGION" \
+          -var Bucket="$BUCKET" \
+          -var TLS="$USE_TLS" \
+          -var Concurrent="$CONCURRENT" \
+          -var BenchData="$BENCH_DATA"
+        stop_collecting_metrics
+    done
 
 done
 
