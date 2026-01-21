@@ -95,7 +95,21 @@ To interpret the results correctly, we track the following metrics:
     *   `lo`: Traffic on the loopback interface. Represents application-perceived throughput.
 *   **Proxy CPU & Memory**: Resource consumption of the proxy process during the test.
 
-## 5. Results Summary
+## 5. Industry Reference (Baselines)
+
+To provide context for S3-Azure-Proxy's performance, we refer to industry benchmarks for standard S3 performance.
+
+**Source**: [Rabata.io S3 Comparison](https://rabata.io/s3-comparison) (Tested on US-East-1, Debian VM, MinIO WARP v1.0.7, **Concurrency: 8**)
+
+| Provider | Upload Speed (PUT) | Download Speed (GET) | Mixed (1MB) | Small Objects (PUT) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Amazon S3** | **1,444 MB/s** (~11.3 Gbps) | **1,816 MB/s** (~14.2 Gbps) | **151 MB/s** | **319 obj/s** |
+| **Rabata.io** | 1,462 MB/s | 1,107 MB/s | 346 MB/s | 696 obj/s |
+| **DigitalOcean**| 1,440 MB/s | 1,728 MB/s | 179 MB/s | 328 obj/s |
+
+*Note: These are baseline numbers for native object storage services. Our benchmarks measure the performance of the **Proxy layer** sitting in front of Azure Blob Storage.*
+
+## 6. Results Summary
 
 ### Consolidated Report
 The following table summarizes the performance across different concurrencies (8, 16, 64).
