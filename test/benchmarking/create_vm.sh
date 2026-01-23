@@ -133,11 +133,10 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@$IP
     
     # Check Warp
     if ! command -v warp &> /dev/null; then
-        echo 'Warp not found. Installing...'
-        export PATH=\$PATH:/usr/local/go/bin
-        go install github.com/minio/warp@v0.7.6
-        # Move to /usr/local/bin requires sudo, or just add go/bin to path (which we did)
-        /bin/sudo /bin/cp ~/go/bin/warp /usr/local/bin/warp || echo 'Could not copy to /usr/local/bin, ensuring GOPATH/bin is used'
+        echo 'Warp not found. Installing v1.4.0...'
+        curl -sL -o warp "https://dl.min.io/aistor/warp/release/linux-amd64/archive/warp.v1.4.0"
+        chmod +x warp
+        sudo mv warp /usr/local/bin/warp
     fi
 "
 
@@ -180,6 +179,7 @@ ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@
          
          # Create a wrapper script that sets up the environment and runs the test
          echo '#!/bin/bash
+            export PATH=/bin:$PATH
             export PATH=/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:~/go/bin
             cd ~/azs3-proxy/test/benchmarking
             

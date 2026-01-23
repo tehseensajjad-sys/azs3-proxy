@@ -26,7 +26,7 @@ warp:
 
   # Benchmark parameters
   params:
-    duration: 300s            # 5 minutes steady state
+    duration: 180s            # 3 minutes steady state
     concurrent: {{.Concurrent}}
 
     obj:

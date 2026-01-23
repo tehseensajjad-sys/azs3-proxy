@@ -18,7 +18,7 @@ warp:
   bench-data: "{{.BenchData}}"
 
   params:
-    duration: 300s
+    duration: 180s
     concurrent: {{.Concurrent}}
 
     obj:
