@@ -114,4 +114,50 @@ To provide context for S3-Azure-Proxy's performance, we refer to industry benchm
 ### Consolidated Report
 The following table summarizes the performance across different concurrencies (8, 16, 64).
 
-*(Results will be automatically generated and appended here after the run completes)*
+# Benchmark Summary Report
+
+### Concurrency: 8
+| Workload | Throughput | Objects/sec | Proxy CPU (Avg) | Proxy Mem (Avg) | Network In | Network Out |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Download 1MiB** | **1.34 Gib/s** | **171.10 obj/s** | 131.0% | 157 MiB | 1.17 Gib/s | 96.15 Mib/s |
+| **Download 10MiB** | **5.12 Gib/s** | **65.54 obj/s** | 106.4% | 210 MiB | 3.61 Gib/s | 761.59 Mib/s |
+| **Download 100MiB** | **24.61 Gib/s** | **31.50 obj/s** | 499.9% | 1274 MiB | 11.50 Gib/s | 4.93 Gib/s |
+| **Download 2GiB** | **32.24 Gib/s** | **2.01 obj/s** | 242.7% | 1339 MiB | 1.61 Gib/s | 10.51 Gib/s |
+| **Upload 1MiB** | **847.30 Mib/s** | **105.91 obj/s** | 46.7% | 166 MiB | 2.02 Mib/s | 498.74 Mib/s |
+| **Upload 10MiB** | **1.71 Gib/s** | **21.86 obj/s** | 32.3% | 313 MiB | 3.16 Mib/s | 1.47 Gib/s |
+| **Upload 100MiB** | **6.41 Gib/s** | **8.21 obj/s** | 109.8% | 977 MiB | 11.99 Mib/s | 5.99 Gib/s |
+| **Upload 2GiB** | **7.28 Gib/s** | **0.45 obj/s** | 120.0% | 1156 MiB | 16.16 Mib/s | 7.16 Gib/s |
+| **Mixed Ops 1MiB** | **1.22 Gib/s** | **260.18 obj/s** | 97.5% | 179 MiB | 751.80 Mib/s | 328.81 Mib/s |
+| **small-128KiB** | **713.72 Mib/s** | **713.72 obj/s** | 69.2% | 158 MiB | 2.93 Mib/s | 125.48 Mib/s |
+
+
+### Concurrency: 16
+| Workload | Throughput | Objects/sec | Proxy CPU (Avg) | Proxy Mem (Avg) | Network In | Network Out |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Download 1MiB** | **2.56 Gib/s** | **327.72 obj/s** | 200.2% | 154 MiB | 2.26 Gib/s | 100.51 Mib/s |
+| **Download 10MiB** | **8.70 Gib/s** | **111.38 obj/s** | 173.7% | 267 MiB | 6.27 Gib/s | 789.40 Mib/s |
+| **Download 100MiB** | **30.57 Gib/s** | **39.14 obj/s** | 611.7% | 2320 MiB | 15.10 Gib/s | 5.23 Gib/s |
+| **Download 2GiB** | **31.11 Gib/s** | **1.94 obj/s** | 265.7% | 2591 MiB | 1.57 Gib/s | 10.54 Gib/s |
+| **Upload 1MiB** | **2.20 Gib/s** | **282.06 obj/s** | 57.1% | 159 MiB | 3.25 Mib/s | 804.26 Mib/s |
+| **Upload 10MiB** | **6.25 Gib/s** | **79.96 obj/s** | 87.1% | 395 MiB | 9.22 Mib/s | 4.30 Gib/s |
+| **Upload 100MiB** | **11.05 Gib/s** | **14.15 obj/s** | 210.4% | 1767 MiB | 25.39 Mib/s | 10.04 Gib/s |
+| **Upload 2GiB** | **11.00 Gib/s** | **0.69 obj/s** | 224.1% | 2138 MiB | 34.81 Mib/s | 10.79 Gib/s |
+| **Mixed Ops 1MiB** | **1.84 Gib/s** | **391.66 obj/s** | 111.6% | 176 MiB | 1.10 Gib/s | 450.19 Mib/s |
+| **small-128KiB** | **1.45 Gib/s** | **1488.69 obj/s** | 61.2% | 148 MiB | 3.00 Mib/s | 156.07 Mib/s |
+
+
+### Concurrency: 64
+| Workload | Throughput | Objects/sec | Proxy CPU (Avg) | Proxy Mem (Avg) | Network In | Network Out |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Download 1MiB** | **13.25 Gib/s** | **1696.19 obj/s** | 599.7% | 164 MiB | 12.30 Gib/s | 138.46 Mib/s |
+| **Download 10MiB** | **31.41 Gib/s** | **402.08 obj/s** | 802.2% | 361 MiB | 27.22 Gib/s | 1.00 Gib/s |
+| **Download 100MiB** | **30.82 Gib/s** | **39.45 obj/s** | 610.0% | 8018 MiB | 14.51 Gib/s | 5.16 Gib/s |
+| **Download 2GiB** | **29.79 Gib/s** | **1.86 obj/s** | 304.5% | 10666 MiB | 1.69 Gib/s | 10.63 Gib/s |
+| **Upload 1MiB** | **5.77 Gib/s** | **738.31 obj/s** | 42.3% | 153 MiB | 4.01 Mib/s | 992.13 Mib/s |
+| **Upload 10MiB** | **11.05 Gib/s** | **141.43 obj/s** | 116.1% | 1017 MiB | 13.09 Mib/s | 5.75 Gib/s |
+| **Upload 100MiB** | **10.92 Gib/s** | **13.97 obj/s** | 226.3% | 6653 MiB | 74.24 Mib/s | 9.10 Gib/s |
+| **Upload 2GiB** | **10.93 Gib/s** | **0.68 obj/s** | 260.5% | 8197 MiB | 101.66 Mib/s | 10.93 Gib/s |
+| **Mixed Ops 1MiB** | **6.90 Gib/s** | **1472.57 obj/s** | 211.7% | 204 MiB | 3.28 Gib/s | 1.13 Gib/s |
+| **small-128KiB** | **4.23 Gib/s** | **4327.97 obj/s** | 40.7% | 165 MiB | 10.81 Mib/s | 145.86 Mib/s |
+
+

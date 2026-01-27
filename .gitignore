@@ -48,5 +48,6 @@ go.work.sum
 
 # WARP Report
 *.zst
+*.csv
 warp_report.md
 warp_runs/
