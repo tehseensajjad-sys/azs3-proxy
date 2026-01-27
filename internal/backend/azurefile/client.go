@@ -45,7 +45,9 @@ type readSeekCloser struct {
 	*bytes.Reader
 }
 
-// Close is a no-op for in-memory byte readers.
+// Close is a no-op for in-memory byte readers since there are no resources to release.
+// The bytes.Reader operates entirely on an in-memory buffer with no file handles,
+// network connections, or other resources that require cleanup.
 func (r *readSeekCloser) Close() error {
 	return nil
 }
@@ -79,6 +81,10 @@ type MultipartUploadMetadata struct {
 }
 
 var (
+	// clientCache stores Azure Files service clients to avoid recreating them for the same credentials.
+	// This is a global cache shared across all AzureFileBackend instances to maximize reuse.
+	// Access is protected by clientCacheMutex to ensure thread-safety.
+	// Note: This pattern matches the azureblob backend implementation for consistency.
 	clientCache      = make(map[string]*service.Client)
 	clientCacheMutex sync.RWMutex
 )
@@ -546,8 +552,7 @@ func (af *AzureFileBackend) UploadPart(ctx context.Context, bucketName, objectKe
 	upload.Mutex.Unlock()
 
 	if currentSize+size > maxMultipartUploadSize {
-		return "", fmt.Errorf("multipart upload exceeds maximum size %d (current: %d, part: %d)", 
-			maxMultipartUploadSize, currentSize, size)
+		return "", fmt.Errorf("multipart upload exceeds maximum size %d (current: %d, part: %d)", maxMultipartUploadSize, currentSize, size)
 	}
 
 	// Read part data into memory with size limit
