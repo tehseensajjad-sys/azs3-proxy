@@ -6,15 +6,15 @@
 [![Coverage](https://img.shields.io/badge/coverage-73.9%25-yellow)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/vibhansa-msft/azs3-proxy/blob/main/LICENSE)
 
-S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage using Azure Go SDK. Enables S3 clients to work with Azure Blob as backend.
+S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage or Azure Files using Azure Go SDK. Enables S3 clients to work with Azure storage backends.
 
 ## Overview
 
 **azs3-proxy** is a lightweight, production-ready proxy server that:
 
 - Exposes an S3-compatible REST API (with SigV4 auth)
-- Translates S3 requests to Azure Blob Storage operations
-- Allows S3 clients and applications to seamlessly work with Azure Blob Storage
+- Translates S3 requests to Azure Blob Storage or Azure Files operations
+- Allows S3 clients and applications to seamlessly work with Azure storage backends
 - Supports core S3 bucket and object operations (CRUD, listing, multipart upload)
 - Uses the latest Azure SDK for Go with optimized performance
 
@@ -45,8 +45,10 @@ For detailed information about metrics, logging, and observability configuration
 
 - Migrate S3-dependent applications to Azure
 - Multi-cloud storage abstraction for S3 clients
-- Enable VAST, MinIO, or other S3-compatible tools to use Azure Blob Storage
+- Enable VAST, MinIO, or other S3-compatible tools to use Azure Blob Storage or Azure Files
 - Development & testing without AWS S3
+- Use Azure Files for file system semantics with S3 API compatibility
+- Hybrid storage scenarios with both blob and file backends
 
 ## Quick Start
 
@@ -73,6 +75,9 @@ Create a `.env` file or set environment variables:
 # HTTP Server
 LISTEN_ADDR=:8080
 
+# Azure Storage Backend Type (blob or file)
+AZURE_BACKEND_TYPE=blob  # Use "blob" for Azure Blob Storage or "file" for Azure Files
+
 # Azure Storage
 AZURE_STORAGE_ACCOUNT=youraccount
 AZURE_STORAGE_KEY=yourkey
@@ -96,6 +101,40 @@ OTEL_EXPORTER_OTLP_INSECURE=true
 
 The proxy listens on `http://localhost:8080` by default.
 
+## Backend Storage Options
+
+The proxy supports two Azure storage backends, configurable via the `AZURE_BACKEND_TYPE` environment variable:
+
+### Azure Blob Storage (default)
+
+```bash
+export AZURE_BACKEND_TYPE=blob
+```
+
+**S3 to Azure Blob Storage mapping:**
+- S3 Bucket → Azure Blob Container
+- S3 Object → Azure Block Blob
+- Multipart Upload → Block Blob staged blocks
+- Object Versioning → Blob versioning (if enabled)
+
+**Best for:** Unstructured data, large files, object storage use cases
+
+### Azure Files
+
+```bash
+export AZURE_BACKEND_TYPE=file
+```
+
+**S3 to Azure Files mapping:**
+- S3 Bucket → Azure File Share
+- S3 Object → Azure File (with automatic directory creation)
+- Multipart Upload → Buffered file upload
+- Object paths with `/` → Nested directories in file share
+
+**Best for:** File system semantics, SMB compatibility, shared file storage
+
+**Note:** Azure Files does not support object versioning. Versioning operations will return appropriate errors when using the file backend.
+
 ## Architecture
 
 ### Project Structure
@@ -110,7 +149,8 @@ azs3-proxy/
 │   ├── server/                  # S3 API server setup
 │   ├── handler/                 # S3 HTTP handlers (bucket, object ops)
 │   ├── backend/                 # Storage backend abstraction
-│   │   └── azureblob/           # Azure Blob implementation
+│   │   ├── azureblob/           # Azure Blob implementation
+│   │   └── azurefile/           # Azure Files implementation
 │   ├── auth/                    # SigV4 verification
 │   └── models/                  # Data models & types
 ├── .github/workflows/           # CI/CD pipelines
@@ -128,6 +168,7 @@ azs3-proxy/
 2. **Backend Abstraction** (`internal/backend/`)
    - Clean interface for storage operations
    - Azure Blob implementation
+   - Azure Files implementation
    - Easy to extend for other backends
 
 3. **Auth Layer** (`internal/auth/`)
@@ -198,6 +239,12 @@ azs3-proxy/
 |---|---|---|---|
 | `S3_ACCESS_KEY` | Yes | – | S3 access key ID for SigV4 authentication |
 | `S3_SECRET_KEY` | Yes | – | S3 secret access key for SigV4 authentication |
+
+### Azure Storage Backend Configuration
+
+| Env Variable | Required | Default | Description |
+|---|---|---|---|
+| `AZURE_BACKEND_TYPE` | No | `blob` | Azure storage backend type: `blob` (Azure Blob Storage) or `file` (Azure Files) |
 
 ### Azure Storage Authentication
 
@@ -309,6 +356,36 @@ s3.put_object(
 # Download object
 obj = s3.get_object(Bucket='mybucket', Key='myfile.txt')
 data = obj['Body'].read()
+```
+
+### Using Azure Files Backend
+
+To use Azure Files instead of Azure Blob Storage:
+
+```bash
+# Configure for Azure Files
+export AZURE_BACKEND_TYPE=file
+export AZURE_STORAGE_ACCOUNT=youraccount
+export AZURE_STORAGE_KEY=yourkey
+export S3_ACCESS_KEY=AKIA1234567890ABCDEF
+export S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
+
+# Start proxy
+./bin/azs3-proxy
+```
+
+Then use S3 clients normally - the proxy will translate to Azure Files operations:
+
+```bash
+# Create a "bucket" (creates an Azure File Share)
+aws s3 mb s3://myshare --endpoint-url http://localhost:8080
+
+# Upload a file (creates file in share with nested directories as needed)
+aws s3 cp myfile.txt s3://myshare/documents/myfile.txt \
+  --endpoint-url http://localhost:8080
+
+# List files (lists files in the share)
+aws s3 ls s3://myshare/documents/ --endpoint-url http://localhost:8080
 ```
 
 ### HTTPS/TLS Support

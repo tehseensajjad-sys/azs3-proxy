@@ -27,7 +27,10 @@ func TestAuthMiddlewareSkipsHealth(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	cfg := &config.Config{AzureAuth: &config.AzureAuthConfig{StorageAccountName: "test", Mode: config.AuthModeAccountKey}}
+	cfg := &config.Config{
+		AzureBackendType: "blob",
+		AzureAuth:        &config.AzureAuthConfig{StorageAccountName: "test", Mode: config.AuthModeAccountKey},
+	}
 	s := &S3ProxyServer{router: r, config: cfg, logger: logger, telMgr: &telemetry.Manager{}}
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
@@ -51,6 +54,7 @@ func TestNewS3ProxyServer(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -82,6 +86,7 @@ func TestNewS3ProxyServerWithSASAuth(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -111,6 +116,7 @@ func TestNewS3ProxyServerWithMSIAuth(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -141,6 +147,7 @@ func TestNewS3ProxyServerWithServicePrincipalAuth(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -171,6 +178,7 @@ func TestS3ProxyServerMiddleware(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -208,6 +216,7 @@ func TestS3ProxyServerRouting(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -245,6 +254,7 @@ func TestServerClose(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -277,6 +287,7 @@ func TestServerAuthMiddlewareWithValidSignature(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -307,6 +318,7 @@ func TestServerAuthMiddlewareWithMissingAuth(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -337,6 +349,7 @@ func TestServerIntegration_FullSetup(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		AzureBackendType:  "blob",
 		ListenAddr:        ":8080",
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     "AKIA1234567890ABCDEF",
@@ -372,9 +385,10 @@ func TestNewS3ProxyServer_InvalidAuth(t *testing.T) {
 		StorageAccountName: "testaccount",
 	}
 	cfg := &config.Config{
-		ListenAddr: ":8080",
-		AzureAuth:  azureAuth,
-		LogLevel:   "info",
+		AzureBackendType: "blob",
+		ListenAddr:       ":8080",
+		AzureAuth:        azureAuth,
+		LogLevel:         "info",
 	}
 	router := chi.NewRouter()
 	logger, _ := zap.NewDevelopment()
@@ -422,13 +436,14 @@ func TestNewS3ProxyServerWithCache(t *testing.T) {
 		StorageAccountURL:  "https://testaccount.blob.core.windows.net",
 	}
 	cfg := &config.Config{
-		ListenAddr:   ":8080",
-		AzureAuth:    azureAuth,
-		LogLevel:     "info",
-		CacheEnabled: true,
-		CachePath:    tmpDir,
-		CacheMaxSize: 1024,
-		CacheTTL:     60,
+		AzureBackendType: "blob",
+		ListenAddr:       ":8080",
+		AzureAuth:        azureAuth,
+		LogLevel:         "info",
+		CacheEnabled:     true,
+		CachePath:        tmpDir,
+		CacheMaxSize:     1024,
+		CacheTTL:         60,
 	}
 
 	router := chi.NewRouter()
