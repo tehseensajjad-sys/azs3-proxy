@@ -583,7 +583,7 @@ func (af *AzureFileBackend) UploadPart(ctx context.Context, bucketName, objectKe
 	// Check if part already exists and update it
 	_, alreadyExists := upload.Parts[partNumber]
 	upload.Parts[partNumber] = partData
-	
+
 	// Only add to PartOrder if it's a new part
 	if !alreadyExists {
 		upload.PartOrder = append(upload.PartOrder, partNumber)
@@ -623,7 +623,7 @@ func (af *AzureFileBackend) CompleteMultipartUpload(ctx context.Context, bucketN
 	for partNum := range upload.Parts {
 		partNumbers = append(partNumbers, partNum)
 	}
-	
+
 	// Sort in ascending order
 	for i := 0; i < len(partNumbers); i++ {
 		for j := i + 1; j < len(partNumbers); j++ {
