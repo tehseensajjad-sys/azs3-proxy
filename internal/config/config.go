@@ -17,6 +17,9 @@ type Config struct {
 	CertFile  string // Path to TLS certificate file
 	KeyFile   string // Path to TLS private key file
 
+	// Azure Storage Backend Type (blob or file)
+	AzureBackendType string // Backend type: "blob" or "file" (default: "blob")
+
 	// Azure Storage Authentication (supports multiple auth modes: account key, SAS, MSI, SPN, federated, Azure CLI)
 	AzureAuth *AzureAuthConfig
 
@@ -68,6 +71,7 @@ func LoadConfig() (*Config, error) {
 		EnableTLS:         getEnv("ENABLE_TLS", "false") == "true",
 		CertFile:          getEnv("TLS_CERT_FILE", ""),
 		KeyFile:           getEnv("TLS_KEY_FILE", ""),
+		AzureBackendType:  getEnv("AZURE_BACKEND_TYPE", "blob"),
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     getEnvRequired("S3_ACCESS_KEY"),
 		S3SecretAccessKey: getEnvRequired("S3_SECRET_KEY"),
@@ -102,6 +106,11 @@ func (c *Config) Validate() error {
 	}
 	if c.S3SecretAccessKey == "" {
 		return fmt.Errorf("S3_SECRET_KEY is required")
+	}
+
+	// Validate backend type
+	if c.AzureBackendType != "blob" && c.AzureBackendType != "file" {
+		return fmt.Errorf("AZURE_BACKEND_TYPE must be either 'blob' or 'file', got: %s", c.AzureBackendType)
 	}
 
 	// Validate TLS configuration if enabled

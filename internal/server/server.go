@@ -16,6 +16,7 @@ import (
 	"github.com/vibhansa-msft/azs3-proxy/internal/auth"
 	"github.com/vibhansa-msft/azs3-proxy/internal/backend"
 	"github.com/vibhansa-msft/azs3-proxy/internal/backend/azureblob"
+	"github.com/vibhansa-msft/azs3-proxy/internal/backend/azurefile"
 	"github.com/vibhansa-msft/azs3-proxy/internal/cache"
 	"github.com/vibhansa-msft/azs3-proxy/internal/config"
 	"github.com/vibhansa-msft/azs3-proxy/internal/handler"
@@ -64,16 +65,32 @@ func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger, t
 	// Initialize the AWS SigV4 signature verifier with S3 credentials
 	s.auth = auth.NewAuthVerifier(cfg.S3AccessKeyID, cfg.S3SecretAccessKey)
 
-	// Initialize the Azure Blob Storage backend with configured authentication method
-	backendImpl, err := azureblob.NewAzureBlobBackendWithAuth(cfg.AzureAuth, logger, telMgr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize azure blob backend: %w", err)
+	// Initialize the appropriate Azure backend based on configuration
+	var backendImpl backend.StorageBackend
+	var err error
+
+	switch cfg.AzureBackendType {
+	case "blob":
+		logger.Info("initializing Azure Blob Storage backend")
+		backendImpl, err = azureblob.NewAzureBlobBackendWithAuth(cfg.AzureAuth, logger, telMgr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize azure blob backend: %w", err)
+		}
+	case "file":
+		logger.Info("initializing Azure Files backend")
+		backendImpl, err = azurefile.NewAzureFileBackendWithAuth(cfg.AzureAuth, logger, telMgr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize azure file backend: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported backend type: %s (must be 'blob' or 'file')", cfg.AzureBackendType)
 	}
 
 	s.backend = backendImpl
 
-	// Log which authentication method is being used for Azure
-	logger.Info("azure authentication initialized",
+	// Log which backend and authentication method is being used for Azure
+	logger.Info("azure backend initialized",
+		zap.String("backend_type", cfg.AzureBackendType),
 		zap.String("auth_mode", cfg.AzureAuth.Mode.String()),
 		zap.String("storage_account", cfg.AzureAuth.StorageAccountName))
 
