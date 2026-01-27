@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"io"
 	"testing"
+
+	backendcommon "github.com/vibhansa-msft/azs3-proxy/internal/backend/common"
 )
 
 func TestReadSeekCloser(t *testing.T) {
 	data := []byte("test data")
 	reader := bytes.NewReader(data)
-	rsc := &readSeekCloser{Reader: reader}
+	rsc := &backendcommon.ReadSeekCloser{Reader: reader}
 
 	// Test Read
 	buf := make([]byte, 4)

@@ -3,8 +3,6 @@ package azurefile
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"path"
@@ -20,6 +18,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/vibhansa-msft/azs3-proxy/internal/backend"
+	backendcommon "github.com/vibhansa-msft/azs3-proxy/internal/backend/common"
 	"github.com/vibhansa-msft/azs3-proxy/internal/config"
 	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
@@ -38,19 +37,6 @@ const (
 	// that we'll buffer in memory. Uploads larger than this will fail with an error.
 	maxMultipartUploadSize = 5 * 1024 * 1024 * 1024 // 5GB
 )
-
-// readSeekCloser wraps bytes.Reader to implement io.ReadSeekCloser interface.
-// Used for objects stored in memory that need to be read multiple times or seeked.
-type readSeekCloser struct {
-	*bytes.Reader
-}
-
-// Close is a no-op for in-memory byte readers since there are no resources to release.
-// The bytes.Reader operates entirely on an in-memory buffer with no file handles,
-// network connections, or other resources that require cleanup.
-func (r *readSeekCloser) Close() error {
-	return nil
-}
 
 // AzureFileBackend implements the storage backend interface using Azure Files.
 // It handles all file operations, multipart uploads, and share management.
@@ -89,28 +75,6 @@ var (
 	clientCacheMutex sync.RWMutex
 )
 
-// hashSensitiveValue creates a hash of sensitive values for safe caching.
-// This prevents credentials from being exposed in cache keys or logs.
-func hashSensitiveValue(value string) string {
-	if value == "" {
-		return ""
-	}
-	hash := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(hash[:8]) // Use first 8 bytes (16 hex chars) for uniqueness
-}
-
-func getClientCacheKey(cfg *config.AzureAuthConfig) string {
-	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s",
-		cfg.Mode,
-		cfg.StorageAccountName,
-		hashSensitiveValue(cfg.AccountKey),
-		hashSensitiveValue(cfg.SASToken),
-		cfg.MSIClientID,
-		cfg.SPNClientID,
-		cfg.FederatedClientID,
-	)
-}
-
 // NewAzureFileBackendWithAuth creates an Azure Files backend using flexible authentication.
 // Supports account key and SAS token authentication methods.
 // Logs authentication method and storage account for audit/debugging purposes.
@@ -123,7 +87,7 @@ func NewAzureFileBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 		zap.String("auth_mode", authConfig.Mode.String()))
 
 	// Check cache first
-	cacheKey := getClientCacheKey(authConfig)
+	cacheKey := backendcommon.BuildCacheKey(authConfig)
 	clientCacheMutex.RLock()
 	client, ok := clientCache[cacheKey]
 	clientCacheMutex.RUnlock()
@@ -134,8 +98,9 @@ func NewAzureFileBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 			zap.String("auth_mode", authConfig.Mode.String()))
 	} else {
 		var err error
+		telemetryEnabled := telMgr != nil && telMgr.IsEnabled()
 		// Build Azure client using the appropriate authentication credential
-		client, err = BuildServiceClientFromCredential(ctx, authConfig, logger)
+		client, err = BuildServiceClientFromCredential(ctx, authConfig, logger, telemetryEnabled)
 		if err != nil {
 			logger.Error("failed to build azure files client",
 				zap.Error(err),
@@ -835,16 +800,22 @@ func (af *AzureFileBackend) recordAzureRequest(ctx context.Context, operation st
 	}
 
 	if af.logger != nil {
+		reqID := backendcommon.RequestIDFromContext(ctx)
+		fields := []zap.Field{
+			zap.String("operation", operation),
+			zap.String("direction", "outbound"),
+		}
+		if reqID != "" {
+			fields = append(fields, zap.String("req_id", reqID))
+		}
 		if success {
-			af.logger.Debug("azure files request successful",
-				zap.String("operation", operation),
-				zap.String("direction", "outbound"))
+			af.logger.Debug("azure files request successful", fields...)
 		} else {
-			af.logger.Error("azure files request failed",
-				zap.String("operation", operation),
+			fields = append(fields,
 				zap.Error(err),
 				zap.String("error_type", errorType),
-				zap.String("direction", "outbound"))
+			)
+			af.logger.Error("azure files request failed", fields...)
 		}
 	}
 }

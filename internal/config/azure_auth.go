@@ -67,11 +67,14 @@ type AzureAuthConfig struct {
 	// No additional fields needed - uses ~/.azure/credentials from logged-in user
 }
 
-// LoadAzureAuthConfig loads all Azure authentication configuration from environment variables.
-// It auto-detects the authentication mode based on which credentials are available,
-// validates that all required fields for that mode are present, and builds the storage account URL.
-// Returns error if no valid authentication method is configured or required fields are missing.
+// LoadAzureAuthConfig loads Azure auth using the default blob endpoint (backward compatibility).
 func LoadAzureAuthConfig() (*AzureAuthConfig, error) {
+	return LoadAzureAuthConfigWithBackend("")
+}
+
+// LoadAzureAuthConfigWithBackend loads all Azure authentication configuration from environment variables
+// and chooses the default endpoint based on backend type (blob/file). If backendType is empty, blob is used.
+func LoadAzureAuthConfigWithBackend(backendType string) (*AzureAuthConfig, error) {
 	// Initialize configuration with all environment variables that might be needed
 	cfg := &AzureAuthConfig{
 		SubscriptionID:     getEnv("AZURE_SUBSCRIPTION_ID", ""),
@@ -84,6 +87,10 @@ func LoadAzureAuthConfig() (*AzureAuthConfig, error) {
 		SPNObjectID:        getEnv("AZURE_OBJECT_ID", ""),
 		FederatedClientID:  getEnv("AZURE_CLIENT_ID", ""),
 		FederatedTokenFile: getEnv("AZURE_FEDERATED_TOKEN_FILE", ""),
+	}
+
+	if backendType == "" {
+		backendType = "blob"
 	}
 
 	// Detect which authentication mode should be used based on environment variables
@@ -105,7 +112,11 @@ func LoadAzureAuthConfig() (*AzureAuthConfig, error) {
 			// Default to local Azurite emulator for devstoreaccount1
 			cfg.StorageAccountURL = "http://127.0.0.1:10000/devstoreaccount1"
 		} else {
-			cfg.StorageAccountURL = fmt.Sprintf("https://%s.blob.core.windows.net", cfg.StorageAccountName)
+			domain := "blob.core.windows.net"
+			if backendType == "file" {
+				domain = "file.core.windows.net"
+			}
+			cfg.StorageAccountURL = fmt.Sprintf("https://%s.%s", cfg.StorageAccountName, domain)
 		}
 	}
 

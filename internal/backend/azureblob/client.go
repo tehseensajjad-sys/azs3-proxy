@@ -19,20 +19,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/vibhansa-msft/azs3-proxy/internal/backend"
+	backendcommon "github.com/vibhansa-msft/azs3-proxy/internal/backend/common"
 	"github.com/vibhansa-msft/azs3-proxy/internal/config"
 	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
-
-// readSeekCloser wraps bytes.Reader to implement io.ReadSeekCloser interface.
-// Used for objects stored in memory that need to be read multiple times or seeked.
-type readSeekCloser struct {
-	*bytes.Reader
-}
-
-// Close is a no-op for in-memory byte readers.
-func (r *readSeekCloser) Close() error {
-	return nil
-}
 
 // AzureBlobBackend implements the storage backend interface using Azure Blob Storage.
 // It handles all blob operations, multipart uploads, and bucket versioning.
@@ -89,18 +79,6 @@ var (
 	}
 )
 
-func getClientCacheKey(cfg *config.AzureAuthConfig) string {
-	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s",
-		cfg.Mode,
-		cfg.StorageAccountName,
-		cfg.AccountKey,
-		cfg.SASToken,
-		cfg.MSIClientID,
-		cfg.SPNClientID,
-		cfg.FederatedClientID,
-	)
-}
-
 // NewAzureBlobBackendWithAuth creates an Azure Blob backend using flexible authentication.
 // Supports six authentication methods: account key, SAS, MSI, SPN, federated token, and Azure CLI.
 // Logs authentication method and storage account for audit/debugging purposes.
@@ -113,7 +91,7 @@ func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 		zap.String("auth_mode", authConfig.Mode.String()))
 
 	// Check cache first
-	cacheKey := getClientCacheKey(authConfig)
+	cacheKey := backendcommon.BuildCacheKey(authConfig)
 	clientCacheMutex.RLock()
 	client, ok := clientCache[cacheKey]
 	clientCacheMutex.RUnlock()
@@ -125,10 +103,7 @@ func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 	} else {
 		var err error
 		// Check if telemetry is enabled
-		telemetryEnabled := false
-		if telMgr != nil {
-			telemetryEnabled = telMgr.IsEnabled()
-		}
+		telemetryEnabled := telMgr != nil && telMgr.IsEnabled()
 
 		// Build Azure client using the appropriate authentication credential
 		client, err = BuildClientFromCredential(ctx, authConfig, logger, telemetryEnabled)
@@ -492,7 +467,7 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 		if err != nil {
 			return "", fmt.Errorf("failed to read part body: %w", err)
 		}
-		reader = &readSeekCloser{bytes.NewReader(buf)}
+		reader = &backendcommon.ReadSeekCloser{Reader: bytes.NewReader(buf)}
 	} else {
 		// Fallback for unknown size or huge parts.
 		// WARNING: io.ReadAll will happen here if we don't have size, as we can't preallocate.
@@ -506,7 +481,7 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 		if err != nil {
 			return "", fmt.Errorf("failed to read part data: %w", err)
 		}
-		reader = &readSeekCloser{bytes.NewReader(partData)}
+		reader = &backendcommon.ReadSeekCloser{Reader: bytes.NewReader(partData)}
 	}
 
 	// Stage the block in Azure using the in-memory buffer
@@ -784,7 +759,7 @@ func (ab *AzureBlobBackend) recordAzureRequest(ctx context.Context, operation st
 		var respErr *azcore.ResponseError
 		if errors.As(err, &respErr) && respErr.RawResponse != nil {
 			azureRequestID = respErr.RawResponse.Header.Get("x-ms-request-id")
-			azureClientRequestID = respErr.RawResponse.Header.Get(clientRequestIDHeader)
+			azureClientRequestID = respErr.RawResponse.Header.Get(backendcommon.ClientRequestIDHeader)
 		}
 	}
 
@@ -793,7 +768,7 @@ func (ab *AzureBlobBackend) recordAzureRequest(ctx context.Context, operation st
 	}
 
 	if ab.logger != nil {
-		reqID := requestIDFromContext(ctx)
+		reqID := backendcommon.RequestIDFromContext(ctx)
 
 		fields := []zap.Field{
 			zap.String("operation", operation),

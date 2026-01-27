@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	backendcommon "github.com/vibhansa-msft/azs3-proxy/internal/backend/common"
 	"github.com/vibhansa-msft/azs3-proxy/internal/config"
 	"go.uber.org/zap"
 )
@@ -19,7 +20,7 @@ func TestNewCredentialProviderAccountKey(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	provider, err := NewCredentialProvider(authConfig, logger)
+	provider, err := backendcommon.NewCredentialProvider(authConfig, logger)
 	if err != nil {
 		t.Logf("NewCredentialProvider returned error (expected for test): %v", err)
 	}
@@ -38,7 +39,7 @@ func TestNewCredentialProviderSAS(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	provider, err := NewCredentialProvider(authConfig, logger)
+	provider, err := backendcommon.NewCredentialProvider(authConfig, logger)
 	if err != nil {
 		t.Logf("NewCredentialProvider returned error: %v", err)
 	}
@@ -56,7 +57,7 @@ func TestNewCredentialProviderMSI(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	provider, err := NewCredentialProvider(authConfig, logger)
+	provider, err := backendcommon.NewCredentialProvider(authConfig, logger)
 	if err != nil {
 		t.Logf("NewCredentialProvider returned error: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestNewCredentialProviderSPN(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	provider, err := NewCredentialProvider(authConfig, logger)
+	provider, err := backendcommon.NewCredentialProvider(authConfig, logger)
 	if err != nil {
 		t.Logf("NewCredentialProvider returned error: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestNewCredentialProviderFederatedToken(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	provider, err := NewCredentialProvider(authConfig, logger)
+	provider, err := backendcommon.NewCredentialProvider(authConfig, logger)
 	if err != nil {
 		t.Logf("NewCredentialProvider returned error: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestNewCredentialProviderAzCLI(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer func() { _ = logger.Sync() }()
 
-	provider, err := NewCredentialProvider(authConfig, logger)
+	provider, err := backendcommon.NewCredentialProvider(authConfig, logger)
 	if err != nil {
 		t.Logf("NewCredentialProvider returned error: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestBuildClientFromCredentialAccountKey(t *testing.T) {
 	defer func() { _ = logger.Sync() }()
 
 	ctx := context.Background()
-	provider, err := NewCredentialProvider(authConfig, logger)
+	provider, err := backendcommon.NewCredentialProvider(authConfig, logger)
 	if err != nil {
 		t.Logf("NewCredentialProvider returned error: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestBuildClientFromCredentialSAS(t *testing.T) {
 	defer func() { _ = logger.Sync() }()
 
 	ctx := context.Background()
-	provider, err := NewCredentialProvider(authConfig, logger)
+	provider, err := backendcommon.NewCredentialProvider(authConfig, logger)
 	if err != nil {
 		t.Logf("NewCredentialProvider returned error: %v", err)
 	}

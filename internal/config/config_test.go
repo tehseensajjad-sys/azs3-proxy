@@ -205,6 +205,32 @@ func TestLoadConfigValidation(t *testing.T) {
 	}
 }
 
+func TestFileBackendDefaultsToFileEndpoint(t *testing.T) {
+	_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "filesacct")
+	_ = os.Setenv("AZURE_STORAGE_KEY", "testkey")
+	_ = os.Setenv("S3_ACCESS_KEY", "testaccess")
+	_ = os.Setenv("S3_SECRET_KEY", "testsecret")
+	_ = os.Setenv("AZURE_BACKEND_TYPE", "file")
+	_ = os.Unsetenv("AZURE_STORAGE_URL")
+	defer func() {
+		_ = os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+		_ = os.Unsetenv("AZURE_STORAGE_KEY")
+		_ = os.Unsetenv("S3_ACCESS_KEY")
+		_ = os.Unsetenv("S3_SECRET_KEY")
+		_ = os.Unsetenv("AZURE_BACKEND_TYPE")
+	}()
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	expected := "https://filesacct.file.core.windows.net"
+	if cfg.AzureAuth.StorageAccountURL != expected {
+		t.Fatalf("expected file endpoint %s, got %s", expected, cfg.AzureAuth.StorageAccountURL)
+	}
+}
+
 func TestTLSConfiguration(t *testing.T) {
 	tests := []struct {
 		name      string

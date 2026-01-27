@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	backendcommon "github.com/vibhansa-msft/azs3-proxy/internal/backend/common"
 	"github.com/vibhansa-msft/azs3-proxy/internal/config"
 	"go.uber.org/zap"
 )
@@ -12,7 +13,7 @@ func TestFederatedAndAzCLIAndUnknownProvider(t *testing.T) {
 	ctx := context.Background()
 
 	// Federated token credential: String() and GetCredential should behave predictably.
-	f := NewFederatedTokenCredential("tenant-1", "client-1", "/no/such/file")
+	f := backendcommon.NewFederatedTokenCredential("tenant-1", "client-1", "/no/such/file")
 	if got := f.String(); got != "FederatedToken(tenant=tenant-1,client=client-1)" {
 		t.Errorf("unexpected FederatedToken String(): %s", got)
 	}
@@ -21,7 +22,7 @@ func TestFederatedAndAzCLIAndUnknownProvider(t *testing.T) {
 	}
 
 	// Azure CLI credential: String() and GetCredential should return the expected values/errors.
-	a := NewAzCLICredential()
+	a := backendcommon.NewAzCLICredential()
 	if a.String() != "AzureCLI" {
 		t.Errorf("unexpected AzCLICredential String(): %s", a.String())
 	}
@@ -38,7 +39,7 @@ func TestFederatedAndAzCLIAndUnknownProvider(t *testing.T) {
 		StorageAccountName: "testaccount",
 	}
 
-	if _, err := NewCredentialProvider(cfg, logger); err == nil {
+	if _, err := backendcommon.NewCredentialProvider(cfg, logger); err == nil {
 		t.Error("expected error for unsupported auth mode in NewCredentialProvider")
 	}
 }

@@ -43,8 +43,11 @@ type Config struct {
 // It loads Azure auth config, S3 credentials, logging, and cache settings,
 // then validates all required fields are present.
 func LoadConfig() (*Config, error) {
+	// Determine backend type early so we can build the correct endpoint default
+	azureBackendType := getEnv("AZURE_BACKEND_TYPE", "blob")
+
 	// Load and parse Azure authentication configuration from environment
-	azureAuth, err := LoadAzureAuthConfig()
+	azureAuth, err := LoadAzureAuthConfigWithBackend(azureBackendType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Azure authentication config: %w", err)
 	}
@@ -71,7 +74,7 @@ func LoadConfig() (*Config, error) {
 		EnableTLS:         getEnv("ENABLE_TLS", "false") == "true",
 		CertFile:          getEnv("TLS_CERT_FILE", ""),
 		KeyFile:           getEnv("TLS_KEY_FILE", ""),
-		AzureBackendType:  getEnv("AZURE_BACKEND_TYPE", "blob"),
+		AzureBackendType:  azureBackendType,
 		AzureAuth:         azureAuth,
 		S3AccessKeyID:     getEnvRequired("S3_ACCESS_KEY"),
 		S3SecretAccessKey: getEnvRequired("S3_SECRET_KEY"),

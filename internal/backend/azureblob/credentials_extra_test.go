@@ -3,13 +3,15 @@ package azureblob
 import (
 	"context"
 	"testing"
+
+	backendcommon "github.com/vibhansa-msft/azs3-proxy/internal/backend/common"
 )
 
 func TestCredentialMethods(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("AccountKeyCredential", func(t *testing.T) {
-		c := NewAccountKeyCredential("account", "key")
+		c := backendcommon.NewAccountKeyCredential("account", "key")
 		if c.String() != "AccountKey(account=account)" {
 			t.Errorf("Unexpected String(): %s", c.String())
 		}
@@ -19,7 +21,7 @@ func TestCredentialMethods(t *testing.T) {
 	})
 
 	t.Run("SASTokenCredential", func(t *testing.T) {
-		c := NewSASTokenCredential("token")
+		c := backendcommon.NewSASTokenCredential("token")
 		if c.String() != "SASToken" {
 			t.Errorf("Unexpected String(): %s", c.String())
 		}
@@ -29,11 +31,11 @@ func TestCredentialMethods(t *testing.T) {
 	})
 
 	t.Run("ManagedIdentityCredential", func(t *testing.T) {
-		c := NewManagedIdentityCredential("client-id")
+		c := backendcommon.NewManagedIdentityCredential("client-id")
 		if c.String() != "ManagedIdentity(clientID=client-id)" {
 			t.Errorf("Unexpected String(): %s", c.String())
 		}
-		c2 := NewManagedIdentityCredential("")
+		c2 := backendcommon.NewManagedIdentityCredential("")
 		if c2.String() != "ManagedIdentity(system)" {
 			t.Errorf("Unexpected String(): %s", c2.String())
 		}
@@ -43,7 +45,7 @@ func TestCredentialMethods(t *testing.T) {
 	})
 
 	t.Run("ServicePrincipalCredential", func(t *testing.T) {
-		c := NewServicePrincipalCredential("tenant", "client", "secret")
+		c := backendcommon.NewServicePrincipalCredential("tenant", "client", "secret")
 		if c.String() != "ServicePrincipal(tenant=tenant,client=client)" {
 			t.Errorf("Unexpected String(): %s", c.String())
 		}

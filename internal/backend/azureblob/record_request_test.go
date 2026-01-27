@@ -7,6 +7,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"go.uber.org/zap"
+
+	backendcommon "github.com/vibhansa-msft/azs3-proxy/internal/backend/common"
 )
 
 func TestRecordAzureRequestCapturesIDs(t *testing.T) {
@@ -17,7 +19,7 @@ func TestRecordAzureRequestCapturesIDs(t *testing.T) {
 
 	resp := &http.Response{Header: http.Header{}}
 	resp.Header.Set("x-ms-request-id", "azure-req-id")
-	resp.Header.Set(clientRequestIDHeader, "client-req-id")
+	resp.Header.Set(backendcommon.ClientRequestIDHeader, "client-req-id")
 
 	err := &azcore.ResponseError{RawResponse: resp}
 
