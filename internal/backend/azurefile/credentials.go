@@ -118,8 +118,9 @@ func BuildServiceClientFromCredential(ctx context.Context, authConfig *config.Az
 
 	case config.AuthModeMSI, config.AuthModeSPN, config.AuthModeFederatedToken, config.AuthModeAzCLI:
 		// Token-based authentication methods
-		// These would require azure-identity SDK and token credentials
-		// For now, returning error as they need to be properly implemented
+		// Note: Azure Files currently has limited support for token-based authentication in the Go SDK.
+		// For production use with Azure Files, please use AccountKey or SAS token authentication.
+		// Azure Blob Storage supports all authentication methods.
 		return nil, fmt.Errorf("token-based authentication (%s) for Azure Files is not yet fully implemented - please use AccountKey or SAS token authentication", authConfig.Mode.String())
 
 	default:

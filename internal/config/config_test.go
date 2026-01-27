@@ -480,7 +480,8 @@ func TestValidateConfig_ValidListenAddrVariations(t *testing.T) {
 
 	for _, addr := range testCases {
 		cfg := &Config{
-			ListenAddr: addr,
+			ListenAddr:       addr,
+			AzureBackendType: "blob",
 			AzureAuth: &AzureAuthConfig{
 				Mode:               AuthModeAccountKey,
 				StorageAccountName: "test",
@@ -499,7 +500,8 @@ func TestValidateConfig_ValidListenAddrVariations(t *testing.T) {
 
 func TestValidateConfig_ValidConfig(t *testing.T) {
 	cfg := &Config{
-		ListenAddr: ":8080",
+		ListenAddr:       ":8080",
+		AzureBackendType: "blob",
 		AzureAuth: &AzureAuthConfig{
 			Mode:               AuthModeAccountKey,
 			StorageAccountName: "test",

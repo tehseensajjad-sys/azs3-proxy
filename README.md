@@ -133,6 +133,8 @@ export AZURE_BACKEND_TYPE=file
 
 **Best for:** File system semantics, SMB compatibility, shared file storage
 
+**Authentication:** Azure Files backend currently supports AccountKey and SAS token authentication. For MSI, Service Principal, and other token-based authentication methods, please use the Azure Blob backend.
+
 **Note:** Azure Files does not support object versioning. Versioning operations will return appropriate errors when using the file backend.
 
 ## Architecture

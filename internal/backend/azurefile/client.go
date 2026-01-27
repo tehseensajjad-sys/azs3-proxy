@@ -580,8 +580,14 @@ func (af *AzureFileBackend) UploadPart(ctx context.Context, bucketName, objectKe
 	upload.Mutex.Lock()
 	defer upload.Mutex.Unlock()
 
+	// Check if part already exists and update it
+	_, alreadyExists := upload.Parts[partNumber]
 	upload.Parts[partNumber] = partData
-	upload.PartOrder = append(upload.PartOrder, partNumber)
+	
+	// Only add to PartOrder if it's a new part
+	if !alreadyExists {
+		upload.PartOrder = append(upload.PartOrder, partNumber)
+	}
 
 	// Generate ETag for the part
 	etag = fmt.Sprintf("\"%s-%d\"", uploadID, partNumber)
@@ -611,16 +617,28 @@ func (af *AzureFileBackend) CompleteMultipartUpload(ctx context.Context, bucketN
 		return "", fmt.Errorf("no parts uploaded")
 	}
 
-	// Assemble parts in order
+	// Assemble parts in ascending numerical order (not upload order)
+	// Sort part numbers to ensure correct assembly
+	partNumbers := make([]int, 0, len(upload.Parts))
+	for partNum := range upload.Parts {
+		partNumbers = append(partNumbers, partNum)
+	}
+	
+	// Sort in ascending order
+	for i := 0; i < len(partNumbers); i++ {
+		for j := i + 1; j < len(partNumbers); j++ {
+			if partNumbers[i] > partNumbers[j] {
+				partNumbers[i], partNumbers[j] = partNumbers[j], partNumbers[i]
+			}
+		}
+	}
+
+	// Assemble parts in correct order
 	var totalSize int64
 	var assembledData bytes.Buffer
 
-	for _, partNum := range upload.PartOrder {
-		partData, ok := upload.Parts[partNum]
-		if !ok {
-			upload.Mutex.Unlock()
-			return "", fmt.Errorf("missing part %d", partNum)
-		}
+	for _, partNum := range partNumbers {
+		partData := upload.Parts[partNum]
 		totalSize += int64(len(partData))
 		assembledData.Write(partData)
 	}
