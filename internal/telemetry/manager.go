@@ -95,9 +95,12 @@ func (m *Manager) GetConfig() *TelemetryConfig {
 	return m.cfg
 }
 
-// IsEnabled checks if telemetry is enabled
+// IsEnabled returns whether telemetry is enabled
 func (m *Manager) IsEnabled() bool {
-	return m.cfg != nil && m.cfg.IsEnabled()
+	if m == nil || m.cfg == nil {
+		return false
+	}
+	return m.cfg.IsEnabled()
 }
 
 // Shutdown gracefully shuts down the telemetry manager

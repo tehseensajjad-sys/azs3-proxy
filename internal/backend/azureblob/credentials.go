@@ -190,7 +190,7 @@ func NewCredentialProvider(authConfig *config.AzureAuthConfig, logger *zap.Logge
 
 // BuildClientFromCredential creates an Azure Blob Client from credentials
 // This abstracts the different authentication methods
-func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuthConfig, logger *zap.Logger) (*azblob.Client, error) {
+func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuthConfig, logger *zap.Logger, telemetryEnabled bool) (*azblob.Client, error) {
 	provider, err := NewCredentialProvider(authConfig, logger)
 	if err != nil {
 		return nil, err
@@ -226,16 +226,24 @@ func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuth
 	defaultTransport.IdleConnTimeout = 90 * time.Second
 	defaultTransport.DisableCompression = true // Azure Blob SDK handles compression if needed, usually better off
 
+	// Only enable OpenTelemetry instrumentation if telemetry is actually enabled.
+	// This avoids significant overhead (context propagation, spans) when not needed.
+	var transport http.RoundTripper = defaultTransport
+	if telemetryEnabled {
+		transport = otelhttp.NewTransport(
+			defaultTransport,
+			otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+				return "AzureBlob: " + r.Method + " " + r.URL.Path
+			}),
+		)
+	}
+
 	clientOptions := &azblob.ClientOptions{
 		ClientOptions: azcore.ClientOptions{
 			Transport: &http.Client{
-				Transport: otelhttp.NewTransport(
-					defaultTransport,
-					otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
-						return "AzureBlob: " + r.Method + " " + r.URL.Path
-					}),
-				),
+				Transport: transport,
 			},
+			PerCallPolicies: []policy.Policy{requestIDPolicy{}},
 			Telemetry: policy.TelemetryOptions{
 				ApplicationID: "azs3-proxy/" + version.Version,
 			},

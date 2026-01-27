@@ -146,7 +146,7 @@ func TestBuildClientFromCredentialAccountKey(t *testing.T) {
 	}
 
 	if provider != nil {
-		_, _ = BuildClientFromCredential(ctx, authConfig, logger)
+		_, _ = BuildClientFromCredential(ctx, authConfig, logger, false)
 	}
 }
 
@@ -167,7 +167,7 @@ func TestBuildClientFromCredentialSAS(t *testing.T) {
 	}
 
 	if provider != nil {
-		_, _ = BuildClientFromCredential(ctx, authConfig, logger)
+		_, _ = BuildClientFromCredential(ctx, authConfig, logger, false)
 	}
 }
 

@@ -1,13 +1,16 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/vibhansa-msft/azs3-proxy/internal/auth"
@@ -30,6 +33,21 @@ type S3ProxyServer struct {
 	auth         *auth.AuthVerifier     // AWS SigV4 signature verifier
 	cacheManager *cache.CacheManager    // Optional cache manager for local object caching
 	telMgr       *telemetry.Manager     // Optional telemetry manager for metrics and logs
+}
+
+// requestIDMiddleware injects a GUID-style request ID into context and response headers.
+func requestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqID := r.Header.Get(middleware.RequestIDHeader)
+		if reqID == "" {
+			reqID = uuid.NewString()
+		}
+
+		ctx := context.WithValue(r.Context(), middleware.RequestIDKey, reqID)
+		w.Header().Set(middleware.RequestIDHeader, reqID)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // NewS3ProxyServer creates and initializes a new S3 proxy server with the provided configuration.
@@ -86,8 +104,11 @@ func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger, t
 }
 
 // registerMiddleware registers all HTTP middleware in the correct order.
-// Middleware is executed in order: Logger -> Recoverer -> SigV4 Auth
+// Middleware is executed in order: RequestID -> Logger -> Recoverer -> SigV4 Auth
 func (s *S3ProxyServer) registerMiddleware() {
+	// Add RequestID middleware first to ensure all logs have a request ID
+	s.router.Use(requestIDMiddleware)
+
 	// Standard logging middleware for all requests
 	s.router.Use(middleware.Logger)
 
@@ -97,6 +118,43 @@ func (s *S3ProxyServer) registerMiddleware() {
 	// Custom AWS SigV4 signature verification middleware
 	s.router.Use(s.authMiddleware)
 
+	// Custom logging middleware to inject Zap logger with RequestID into context
+	// and log both request start and completion (response)
+	s.router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			reqID := middleware.GetReqID(r.Context())
+
+			// Create a child logger with the request ID
+			requestLogger := s.logger.With(zap.String("req_id", reqID))
+
+			// Inject logger with request ID into context
+			// We use a string key "requestID" to make it accessible without importing chi middleware in other packages
+			ctx := context.WithValue(r.Context(), "requestID", reqID)
+
+			requestLogger.Debug("request started",
+				zap.String("method", r.Method),
+				zap.String("path", r.URL.Path),
+				zap.String("remote_addr", r.RemoteAddr),
+				zap.String("user_agent", r.UserAgent()))
+
+			// Pass the request ID down via response header so client can trace it too
+			w.Header().Set("x-amz-request-id", reqID)
+			w.Header().Set("X-Request-ID", reqID)
+
+			// Wrap ResponseWriter to capture status code
+			rw := &responseCapture{ResponseWriter: w}
+
+			next.ServeHTTP(rw, r.WithContext(ctx))
+
+			// Log request completion
+			requestLogger.Debug("request completed",
+				zap.String("method", r.Method),
+				zap.String("path", r.URL.Path),
+				zap.Int("status", rw.status),
+				zap.Duration("duration", time.Since(start)))
+		})
+	})
 	// Optional response debug middleware (enabled via DEBUG_RESPONSES env var)
 	if os.Getenv("DEBUG_RESPONSES") == "true" {
 		s.logger.Warn("response debug middleware enabled")

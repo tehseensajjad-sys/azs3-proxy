@@ -122,7 +122,7 @@ start_proxy() {
   fi
 
   # Start in background
-  (cd "$PROXY_ROOT" && make run) > "$WORKDIR/proxy.log" 2>&1 &
+  (cd "$PROXY_ROOT" && export GOGC=500 && export GOMEMLIMIT=50GiB && make run) > "$WORKDIR/proxy.log" 2>&1 &
   MAKE_PID=$!
   log "Make run started with PID $MAKE_PID. Logs: $WORKDIR/proxy.log"
 
