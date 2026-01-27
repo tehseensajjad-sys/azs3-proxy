@@ -391,12 +391,14 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		cw := &countingWriter{}
 		teeReader := io.TeeReader(reader, cw)
 		err = h.backend.PutObject(r.Context(), bucket, key, finalSize, teeReader)
-		// Log bytes read by backend for diagnostics
-		h.logger.Info("putobject bytes read by backend",
-			zap.String("bucket", bucket),
-			zap.String("key", key),
-			zap.Int64("final_size", finalSize),
-			zap.Int64("bytes_read", atomic.LoadInt64(&cw.cnt)))
+		// Log only when debug is enabled to avoid per-object overhead in high-QPS runs.
+		if h.logger.Core().Enabled(zap.DebugLevel) {
+			h.logger.Debug("putobject bytes read by backend",
+				zap.String("bucket", bucket),
+				zap.String("key", key),
+				zap.Int64("final_size", finalSize),
+				zap.Int64("bytes_read", atomic.LoadInt64(&cw.cnt)))
+		}
 	}
 
 	if err != nil {

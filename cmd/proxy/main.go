@@ -230,6 +230,14 @@ func main() {
 }
 
 func startDaemon() {
+	// Allow tests to skip daemon forking to avoid spawning child processes.
+	if strings.EqualFold(os.Getenv("SKIP_DAEMON_SPAWN"), "true") {
+		// Mimic PID file creation so downstream logic that expects it remains consistent in tests.
+		_ = os.WriteFile(pidFileName, []byte("0"), 0o644)
+		fmt.Println("Skipping daemon spawn (test mode)")
+		return
+	}
+
 	// Check if already running
 	if _, err := os.Stat(pidFileName); err == nil {
 		data, err := os.ReadFile(pidFileName)

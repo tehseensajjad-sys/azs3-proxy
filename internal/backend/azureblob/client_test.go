@@ -10,7 +10,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/vibhansa-msft/azs3-proxy/internal/config"
 	"go.uber.org/zap"
 )
@@ -105,7 +104,8 @@ func TestAzureBlobBackendOperations(t *testing.T) {
 	_ = backend.DeleteBucket(ctx, "bucket")
 	_, _, _, _ = backend.HeadObject(ctx, "bucket", "key")
 	_ = backend.DeleteObject(ctx, "bucket", "key")
-	_ = backend.PutObject(ctx, "bucket", "key", bytes.NewReader([]byte("test-data")))
+	data := []byte("test-data")
+	_ = backend.PutObject(ctx, "bucket", "key", int64(len(data)), bytes.NewReader(data))
 	info, _ := backend.GetObject(ctx, "bucket", "key")
 	if info.Body != nil {
 		_ = info.Body.Close()
@@ -196,14 +196,14 @@ func TestMultipartUploadFlow(t *testing.T) {
 }
 
 func TestMultipartUploadInvalidOperations(t *testing.T) {
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 	}
 
 	ctx := context.Background()
 
 	// Test operations on non-existent upload
-	_, err := backend.UploadPart(ctx, "bucket", "key", "nonexistent", 1, nil)
+	_, err := backend.UploadPart(ctx, "bucket", "key", "nonexistent", 1, 0, nil)
 	if err == nil {
 		t.Error("UploadPart should fail for non-existent upload")
 	}
@@ -230,7 +230,7 @@ func TestMultipartUploadMismatchedBucketKey(t *testing.T) {
 		BlockBlobClient: nil, // Not needed for this test
 	}
 
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		multipartUploads: map[string]*MultipartUploadMetadata{
 			"test-upload-123": mockUpload,
 		},
@@ -239,7 +239,7 @@ func TestMultipartUploadMismatchedBucketKey(t *testing.T) {
 	ctx := context.Background()
 
 	// Try to use it with bucket2/key2
-	_, err := backend.UploadPart(ctx, "bucket2", "key2", "test-upload-123", 1, nil)
+	_, err := backend.UploadPart(ctx, "bucket2", "key2", "test-upload-123", 1, 0, nil)
 	if err == nil {
 		t.Error("UploadPart should fail for mismatched bucket/key")
 	}
@@ -257,7 +257,7 @@ func TestMultipartUploadMismatchedBucketKey(t *testing.T) {
 
 // Test CompleteMultipartUpload validates error cases
 func TestCompleteMultipartUploadErrors(t *testing.T) {
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 	}
 
@@ -272,7 +272,7 @@ func TestCompleteMultipartUploadErrors(t *testing.T) {
 
 // Test ListMultipartUploads with empty list
 func TestListMultipartUploadsEmpty(t *testing.T) {
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 	}
 
@@ -299,7 +299,7 @@ func TestAbortMultipartUploadSuccess(t *testing.T) {
 		BlockBlobClient: nil,
 	}
 
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		multipartUploads: map[string]*MultipartUploadMetadata{
 			"test-upload-123": mockUpload,
 		},
@@ -339,7 +339,7 @@ func TestListMultipartUploadsMultiple(t *testing.T) {
 		BlockBlobClient: nil,
 	}
 
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		multipartUploads: map[string]*MultipartUploadMetadata{
 			"upload-1": mockUpload1,
 			"upload-2": mockUpload2,
@@ -373,7 +373,7 @@ func TestListPartsWithParts(t *testing.T) {
 		BlockBlobClient: nil,
 	}
 
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		multipartUploads: map[string]*MultipartUploadMetadata{
 			"upload-123": mockUpload,
 		},
@@ -392,7 +392,7 @@ func TestListPartsWithParts(t *testing.T) {
 
 // Test AbortMultipartUpload error case
 func TestAbortMultipartUploadNotFound(t *testing.T) {
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 	}
 
@@ -413,7 +413,7 @@ func TestInitiateMultipartUploadUniqueness(t *testing.T) {
 
 // TestEnableVersioning_Success tests enabling versioning on a bucket
 func TestEnableVersioning_Success(t *testing.T) {
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		versionedBuckets:      make(map[string]bool),
 		versionedBucketsMutex: sync.RWMutex{},
 		multipartUploads:      make(map[string]*MultipartUploadMetadata),
@@ -436,7 +436,7 @@ func TestEnableVersioning_Success(t *testing.T) {
 
 // TestGetVersioning_Success tests checking if versioning is enabled
 func TestGetVersioning_Success(t *testing.T) {
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		versionedBuckets:      make(map[string]bool),
 		versionedBucketsMutex: sync.RWMutex{},
 		multipartUploads:      make(map[string]*MultipartUploadMetadata),
@@ -471,7 +471,7 @@ func TestGetVersioning_Success(t *testing.T) {
 
 // TestListPartsWithMultipleParts tests listing multiple parts
 func TestListPartsWithMultipleParts(t *testing.T) {
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		versionedBuckets:      make(map[string]bool),
 		versionedBucketsMutex: sync.RWMutex{},
 		multipartUploads:      make(map[string]*MultipartUploadMetadata),
@@ -508,7 +508,7 @@ func TestListPartsWithMultipleParts(t *testing.T) {
 
 // TestAbortMultipartUpload_Success tests successful abort
 func TestAbortMultipartUpload_Success(t *testing.T) {
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		versionedBuckets:      make(map[string]bool),
 		versionedBucketsMutex: sync.RWMutex{},
 		multipartUploads:      make(map[string]*MultipartUploadMetadata),
@@ -577,7 +577,7 @@ func TestVersioningOperations(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	backend := &AzureBlobBackend{containerClients: make(map[string]*container.Client),
+	backend := &AzureBlobBackend{
 		client:           client,
 		versionedBuckets: make(map[string]bool),
 	}

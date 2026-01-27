@@ -55,7 +55,7 @@ func (f *fakeBackend) GetObject(ctx context.Context, bucketName, objectKey strin
 func (f *fakeBackend) InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (string, error) {
 	return "", nil
 }
-func (f *fakeBackend) UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error) {
+func (f *fakeBackend) UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, size int64, data io.Reader) (string, error) {
 	return "", nil
 }
 func (f *fakeBackend) CompleteMultipartUpload(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (string, error) {

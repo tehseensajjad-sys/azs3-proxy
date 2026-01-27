@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
@@ -77,6 +79,14 @@ func NewAzureBlobBackend(connectionString string) (*AzureBlobBackend, error) {
 var (
 	clientCache      = make(map[string]*azblob.Client)
 	clientCacheMutex sync.RWMutex
+
+	// Reuse buffers for small uploads to reduce allocations/GC on high-QPS small object traffic.
+	smallUploadPool = sync.Pool{
+		New: func() any {
+			buf := make([]byte, 8*1024*1024) // 8MB pool buffers
+			return &buf
+		},
+	}
 )
 
 func getClientCacheKey(cfg *config.AzureAuthConfig) string {
@@ -114,8 +124,14 @@ func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap
 			zap.String("auth_mode", authConfig.Mode.String()))
 	} else {
 		var err error
+		// Check if telemetry is enabled
+		telemetryEnabled := false
+		if telMgr != nil {
+			telemetryEnabled = telMgr.IsEnabled()
+		}
+
 		// Build Azure client using the appropriate authentication credential
-		client, err = BuildClientFromCredential(ctx, authConfig, logger)
+		client, err = BuildClientFromCredential(ctx, authConfig, logger, telemetryEnabled)
 		if err != nil {
 			logger.Error("failed to build azure blob client",
 				zap.Error(err),
@@ -229,20 +245,38 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 	// Optimization: For small objects, read into memory and use UploadBuffer
 	// This avoids UploadStream overhead and enables single-shot PutBlob optimization.
 	// Threshold: 256MB (Safe for D16 memory, and below common PutBlob blocks limits)
-	const memoryUploadThreshold = 256 * 1024 * 1024
+	const (
+		memoryUploadThreshold = 256 * 1024 * 1024
+		pooledThreshold       = 8 * 1024 * 1024
+	)
 
 	if size > 0 && size <= memoryUploadThreshold {
-		// Read entire body into memory
-		buf := make([]byte, size)
-		_, err := io.ReadFull(data, buf)
-		if err != nil {
+		var buf []byte
+		pooled := false
+		if size <= pooledThreshold {
+			b := smallUploadPool.Get().(*[]byte)
+			buf = (*b)[:size]
+			pooled = true
+			defer smallUploadPool.Put(b)
+		} else {
+			buf = make([]byte, size)
+		}
+
+		if _, err := io.ReadFull(data, buf); err != nil {
 			return fmt.Errorf("failed to read body into memory: %w", err)
 		}
 
-		_, err = blobClient.UploadBuffer(ctx, buf, nil)
-		if err != nil {
+		if _, err := blobClient.UploadBuffer(ctx, buf, nil); err != nil {
 			return fmt.Errorf("upload buffer failed: %w", err)
 		}
+
+		if pooled {
+			// Zero the portion we wrote to avoid retaining sensitive data across requests.
+			for i := range buf {
+				buf[i] = 0
+			}
+		}
+
 		return nil
 	}
 
@@ -735,6 +769,8 @@ func (ab *AzureBlobBackend) Close() error {
 func (ab *AzureBlobBackend) recordAzureRequest(ctx context.Context, operation string, err error) {
 	success := err == nil
 	errorType := ""
+	azureRequestID := ""
+	azureClientRequestID := ""
 	if err != nil {
 		errorType = "Unknown"
 		// Try to extract Azure error code
@@ -744,6 +780,12 @@ func (ab *AzureBlobBackend) recordAzureRequest(ctx context.Context, operation st
 		if bloberr, ok := err.(hasErrorCode); ok {
 			errorType = bloberr.ErrorCode()
 		}
+
+		var respErr *azcore.ResponseError
+		if errors.As(err, &respErr) && respErr.RawResponse != nil {
+			azureRequestID = respErr.RawResponse.Header.Get("x-ms-request-id")
+			azureClientRequestID = respErr.RawResponse.Header.Get(clientRequestIDHeader)
+		}
 	}
 
 	if ab.telMgr != nil {
@@ -751,16 +793,31 @@ func (ab *AzureBlobBackend) recordAzureRequest(ctx context.Context, operation st
 	}
 
 	if ab.logger != nil {
+		reqID := requestIDFromContext(ctx)
+
+		fields := []zap.Field{
+			zap.String("operation", operation),
+			zap.String("direction", "outbound"),
+		}
+
+		if reqID != "" {
+			fields = append(fields, zap.String("req_id", reqID))
+		}
+
+		if azureRequestID != "" {
+			fields = append(fields, zap.String("azure_request_id", azureRequestID))
+		}
+
+		if azureClientRequestID != "" {
+			fields = append(fields, zap.String("azure_client_request_id", azureClientRequestID))
+		}
+
 		if success {
-			ab.logger.Debug("azure request successful",
-				zap.String("operation", operation),
-				zap.String("direction", "outbound"))
+			ab.logger.Debug("azure request successful", fields...)
 		} else {
-			ab.logger.Error("azure request failed",
-				zap.String("operation", operation),
-				zap.Error(err),
-				zap.String("error_type", errorType),
-				zap.String("direction", "outbound"))
+			fields = append(fields, zap.Error(err))
+			fields = append(fields, zap.String("error_type", errorType))
+			ab.logger.Error("azure request failed", fields...)
 		}
 	}
 }

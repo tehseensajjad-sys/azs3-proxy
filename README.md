@@ -3,7 +3,7 @@
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)]()
 [![Language: Go](https://img.shields.io/badge/language-Go-blue)]()
 [![Tests](https://img.shields.io/github/actions/workflow/status/vibhansa-msft/azs3-proxy/tests.yml?branch=main&label=tests)](https://github.com/vibhansa-msft/azs3-proxy/actions)
-[![Coverage](https://img.shields.io/badge/coverage-73.9%25-yellow)]()
+[![Coverage](https://img.shields.io/badge/coverage-76.7%25-brightgreen)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/vibhansa-msft/azs3-proxy/blob/main/LICENSE)
 
 S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage using Azure Go SDK. Enables S3 clients to work with Azure Blob as backend.
@@ -67,7 +67,7 @@ go build -o bin/azs3-proxy ./cmd/proxy
 
 ### Configuration
 
-Create a `.env` file or set environment variables:
+Create a `.env` file or set environment variables. For the full configuration reference (server, auth, cache, telemetry), see [Configuration Guide](CONFIGURATION.md).
 
 ```bash
 # HTTP Server

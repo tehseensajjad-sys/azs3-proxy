@@ -58,7 +58,7 @@ type MockBackend struct {
 	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error)
 	ListObjectsFunc             func(ctx context.Context, bucketName, prefix string) ([]string, error)
 	InitiateMultipartUploadFunc func(ctx context.Context, bucketName, objectKey string) (string, error)
-	UploadPartFunc              func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error)
+	UploadPartFunc              func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, size int64, data io.Reader) (string, error)
 	CompleteMultipartUploadFunc func(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (string, error)
 	AbortMultipartUploadFunc    func(ctx context.Context, bucketName, objectKey, uploadID string) error
 	ListPartsFunc               func(ctx context.Context, bucketName, objectKey, uploadID string) ([]interface{}, error)
@@ -156,9 +156,9 @@ func (m *MockBackend) InitiateMultipartUpload(ctx context.Context, bucketName, o
 	return "test-upload-id", nil
 }
 
-func (m *MockBackend) UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error) {
+func (m *MockBackend) UploadPart(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, size int64, data io.Reader) (string, error) {
 	if m.UploadPartFunc != nil {
-		return m.UploadPartFunc(ctx, bucketName, objectKey, uploadID, partNumber, data)
+		return m.UploadPartFunc(ctx, bucketName, objectKey, uploadID, partNumber, size, data)
 	}
 	return "\"test-etag\"", nil
 }
@@ -579,7 +579,7 @@ func TestUploadPartHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockBackend := &MockBackend{
-				UploadPartFunc: func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error) {
+				UploadPartFunc: func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, size int64, data io.Reader) (string, error) {
 					if tt.wantError {
 						return "", errors.New("upload failed")
 					}
@@ -1341,7 +1341,7 @@ func TestInitiateMultipartUploadHandler_Error(t *testing.T) {
 // TestUploadPartHandler_Error tests error handling in UploadPart
 func TestUploadPartHandler_Error(t *testing.T) {
 	mockBackend := &MockBackend{
-		UploadPartFunc: func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, data io.Reader) (string, error) {
+		UploadPartFunc: func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, size int64, data io.Reader) (string, error) {
 			return "", errors.New("upload part failed")
 		},
 	}

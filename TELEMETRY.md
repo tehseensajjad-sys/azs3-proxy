@@ -61,7 +61,7 @@ Attributes:
 
 ## Configuration
 
-Configure telemetry via environment variables:
+Configure telemetry via environment variables. For a full project-wide configuration reference (server, auth, cache, telemetry), see [Configuration Guide](CONFIGURATION.md).
 
 ```bash
 # Enable/disable telemetry
