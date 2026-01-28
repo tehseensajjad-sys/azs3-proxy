@@ -231,6 +231,82 @@ func TestFileBackendDefaultsToFileEndpoint(t *testing.T) {
 	}
 }
 
+func TestEmptyBackendTypeDefaultsToBlob(t *testing.T) {
+	_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "blobacct")
+	_ = os.Setenv("AZURE_STORAGE_KEY", "testkey")
+	_ = os.Setenv("S3_ACCESS_KEY", "testaccess")
+	_ = os.Setenv("S3_SECRET_KEY", "testsecret")
+	_ = os.Setenv("AZURE_BACKEND_TYPE", "")
+	_ = os.Unsetenv("AZURE_STORAGE_URL")
+	defer func() {
+		_ = os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+		_ = os.Unsetenv("AZURE_STORAGE_KEY")
+		_ = os.Unsetenv("S3_ACCESS_KEY")
+		_ = os.Unsetenv("S3_SECRET_KEY")
+		_ = os.Unsetenv("AZURE_BACKEND_TYPE")
+	}()
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	expected := "https://blobacct.blob.core.windows.net"
+	if cfg.AzureAuth.StorageAccountURL != expected {
+		t.Fatalf("expected blob endpoint %s, got %s", expected, cfg.AzureAuth.StorageAccountURL)
+	}
+}
+
+func TestBackendTypeUnsetDefaultsToBlob(t *testing.T) {
+	_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "blobacct-unset")
+	_ = os.Setenv("AZURE_STORAGE_KEY", "testkey")
+	_ = os.Setenv("S3_ACCESS_KEY", "testaccess")
+	_ = os.Setenv("S3_SECRET_KEY", "testsecret")
+	_ = os.Unsetenv("AZURE_BACKEND_TYPE")
+	_ = os.Unsetenv("AZURE_STORAGE_URL")
+	defer func() {
+		_ = os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+		_ = os.Unsetenv("AZURE_STORAGE_KEY")
+		_ = os.Unsetenv("S3_ACCESS_KEY")
+		_ = os.Unsetenv("S3_SECRET_KEY")
+	}()
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	expected := "https://blobacct-unset.blob.core.windows.net"
+	if cfg.AzureAuth.StorageAccountURL != expected {
+		t.Fatalf("expected blob endpoint %s, got %s", expected, cfg.AzureAuth.StorageAccountURL)
+	}
+}
+
+func TestBackendTypeNormalization(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected string
+	}{
+		{"empty -> blob", "", "blob"},
+		{"spaces -> blob", "   ", "blob"},
+		{"blob lower -> blob", "blob", "blob"},
+		{"blob mixed -> blob", " BlOb ", "blob"},
+		{"file lower -> file", "file", "file"},
+		{"file upper -> file", "FILE", "file"},
+		{"file spaced -> file", " file ", "file"},
+		{"other -> blob", "garbage", "blob"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeBackendType(tt.value); got != tt.expected {
+				t.Fatalf("expected %s, got %s", tt.expected, got)
+			}
+		})
+	}
+}
+
 func TestTLSConfiguration(t *testing.T) {
 	tests := []struct {
 		name      string

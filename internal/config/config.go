@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds all proxy configuration loaded from environment variables.
@@ -44,7 +45,10 @@ type Config struct {
 // then validates all required fields are present.
 func LoadConfig() (*Config, error) {
 	// Determine backend type early so we can build the correct endpoint default
-	azureBackendType := getEnv("AZURE_BACKEND_TYPE", "blob")
+	azureBackendType := normalizeBackendType(getEnv("AZURE_BACKEND_TYPE", ""))
+	if azureBackendType == "" {
+		azureBackendType = "blob"
+	}
 
 	// Load and parse Azure authentication configuration from environment
 	azureAuth, err := LoadAzureAuthConfigWithBackend(azureBackendType)
@@ -93,6 +97,15 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// normalizeBackendType returns "file" only when explicitly requested (case-insensitive), otherwise "blob".
+func normalizeBackendType(raw string) string {
+	val := strings.TrimSpace(raw)
+	if strings.EqualFold(val, "file") {
+		return "file"
+	}
+	return "blob"
 }
 
 // Validate validates the entire configuration to ensure all required fields are set
