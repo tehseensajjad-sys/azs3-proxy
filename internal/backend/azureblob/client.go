@@ -346,27 +346,48 @@ func (ab *AzureBlobBackend) HeadObject(ctx context.Context, bucketName, objectKe
 }
 
 func (ab *AzureBlobBackend) ListObjects(ctx context.Context, bucketName, prefix string) (objects []string, err error) {
+	objects, _, err = ab.ListObjectsV2(ctx, bucketName, prefix, "", 0)
+	return objects, err
+}
+
+func (ab *AzureBlobBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []string, nextContinuationToken string, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "ListObjects", err) }()
 
-	var objectsList []string
 	containerClient := ab.getContainerClient(bucketName)
-	options := &container.ListBlobsFlatOptions{Prefix: &prefix}
+	options := &container.ListBlobsFlatOptions{}
+	if prefix != "" {
+		options.Prefix = &prefix
+	}
+	if continuationToken != "" {
+		options.Marker = &continuationToken
+	}
+	if maxResults > 0 {
+		options.MaxResults = &maxResults
+	}
 
 	pager := containerClient.NewListBlobsFlatPager(options)
-	for pager.More() {
-		resp, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("list blobs failed: %w", err)
-		}
-		if resp.Segment != nil && resp.Segment.BlobItems != nil {
-			for _, blob := range resp.Segment.BlobItems {
-				if blob.Name != nil {
-					objectsList = append(objectsList, *blob.Name)
-				}
+	if !pager.More() {
+		return nil, "", nil
+	}
+
+	resp, err := pager.NextPage(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("list blobs failed: %w", err)
+	}
+
+	if resp.Segment != nil && resp.Segment.BlobItems != nil {
+		for _, blob := range resp.Segment.BlobItems {
+			if blob.Name != nil {
+				objects = append(objects, *blob.Name)
 			}
 		}
 	}
-	return objectsList, nil
+
+	if resp.NextMarker != nil {
+		nextContinuationToken = *resp.NextMarker
+	}
+
+	return objects, nextContinuationToken, nil
 }
 
 // GetObject returns object data and metadata for S3 compatibility

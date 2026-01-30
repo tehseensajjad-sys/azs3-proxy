@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
 	"io"
 	"net/http"
@@ -57,6 +58,7 @@ type MockBackend struct {
 	DeleteObjectFunc            func(ctx context.Context, bucketName, objectKey string) error
 	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error)
 	ListObjectsFunc             func(ctx context.Context, bucketName, prefix string) ([]string, error)
+	ListObjectsV2Func           func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error)
 	InitiateMultipartUploadFunc func(ctx context.Context, bucketName, objectKey string) (string, error)
 	UploadPartFunc              func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, size int64, data io.Reader) (string, error)
 	CompleteMultipartUploadFunc func(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (string, error)
@@ -147,6 +149,14 @@ func (m *MockBackend) ListObjects(ctx context.Context, bucketName, prefix string
 		return m.ListObjectsFunc(ctx, bucketName, prefix)
 	}
 	return []string{"key1", "key2"}, nil
+}
+
+func (m *MockBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+	if m.ListObjectsV2Func != nil {
+		return m.ListObjectsV2Func(ctx, bucketName, prefix, continuationToken, maxResults)
+	}
+	objects, _ := m.ListObjects(ctx, bucketName, prefix)
+	return objects, "", nil
 }
 
 func (m *MockBackend) InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (string, error) {
@@ -425,8 +435,14 @@ func TestDeleteBucketHandler(t *testing.T) {
 
 func TestListObjectsV2Handler(t *testing.T) {
 	mockBackend := &MockBackend{
-		ListObjectsFunc: func(ctx context.Context, bucketName, prefix string) ([]string, error) {
-			return []string{"obj1", "obj2"}, nil
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+			if continuationToken != "" {
+				t.Fatalf("unexpected continuation token: %s", continuationToken)
+			}
+			if maxResults != 1000 {
+				t.Fatalf("expected default maxResults 1000, got %d", maxResults)
+			}
+			return []string{"obj1", "obj2"}, "", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -442,6 +458,131 @@ func TestListObjectsV2Handler(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestListObjectsV2Handler_WithContinuation(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+			if continuationToken != "start-token" {
+				t.Fatalf("expected continuation token start-token, got %s", continuationToken)
+			}
+			if maxResults != 2 {
+				t.Fatalf("expected maxResults 2, got %d", maxResults)
+			}
+			return []string{"a", "b"}, "next-token", nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer func() { _ = logger.Sync() }()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}", handler.ListObjectsV2Handler)
+
+	req := httptest.NewRequest("GET", "/mybucket?list-type=2&prefix=p/&continuation-token=start-token&max-keys=2", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp models.ListObjectsV2Response
+	if err := xml.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if resp.NextContinuationToken != "next-token" {
+		t.Fatalf("expected next continuation token next-token, got %s", resp.NextContinuationToken)
+	}
+	if !resp.IsTruncated {
+		t.Fatalf("expected response to be truncated")
+	}
+	if resp.KeyCount != 2 {
+		t.Fatalf("expected key count 2, got %d", resp.KeyCount)
+	}
+}
+
+func TestListObjectsV2Handler_MaxKeysClamp(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+			if continuationToken != "tok" {
+				t.Fatalf("expected continuation token tok, got %s", continuationToken)
+			}
+			if maxResults != 1000 { // expect clamp to 1000 when client asks for too many
+				t.Fatalf("expected maxResults 1000, got %d", maxResults)
+			}
+			return []string{"only"}, "next", nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer func() { _ = logger.Sync() }()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}", handler.ListObjectsV2Handler)
+
+	req := httptest.NewRequest("GET", "/mybucket?list-type=2&continuation-token=tok&max-keys=5001", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp models.ListObjectsV2Response
+	if err := xml.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if resp.ContinuationToken != "tok" {
+		t.Fatalf("expected continuation token echoed, got %s", resp.ContinuationToken)
+	}
+	if resp.NextContinuationToken != "next" {
+		t.Fatalf("expected next continuation token next, got %s", resp.NextContinuationToken)
+	}
+	if resp.KeyCount != 1 {
+		t.Fatalf("expected key count 1, got %d", resp.KeyCount)
+	}
+	if !resp.IsTruncated {
+		t.Fatalf("expected response truncated")
+	}
+}
+
+func TestListObjectsV2Handler_InvalidMaxKeys(t *testing.T) {
+	mockBackend := &MockBackend{
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+			if maxResults != 1000 {
+				t.Fatalf("expected default maxResults 1000 on parse failure, got %d", maxResults)
+			}
+			return []string{"one"}, "", nil
+		},
+	}
+	logger, _ := zap.NewDevelopment()
+	defer func() { _ = logger.Sync() }()
+	handler := NewS3Handler(mockBackend, logger)
+
+	r := chi.NewRouter()
+	r.Get("/{bucket}", handler.ListObjectsV2Handler)
+
+	req := httptest.NewRequest("GET", "/mybucket?list-type=2&max-keys=not-a-number", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp models.ListObjectsV2Response
+	if err := xml.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if resp.KeyCount != 1 {
+		t.Fatalf("expected key count 1, got %d", resp.KeyCount)
+	}
+	if resp.IsTruncated {
+		t.Fatalf("expected not truncated")
 	}
 }
 
@@ -1295,8 +1436,8 @@ func TestHeadObjectHandler_NotFound(t *testing.T) {
 // TestListObjectsV2Handler_Error tests error handling in ListObjects
 func TestListObjectsV2Handler_Error(t *testing.T) {
 	mockBackend := &MockBackend{
-		ListObjectsFunc: func(ctx context.Context, bucketName, prefix string) ([]string, error) {
-			return nil, errors.New("list failed")
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+			return nil, "", errors.New("list failed")
 		},
 	}
 	logger, _ := zap.NewDevelopment()

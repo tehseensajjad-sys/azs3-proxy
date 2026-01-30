@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -361,11 +362,9 @@ func (af *AzureFileBackend) HeadObject(ctx context.Context, bucketName, objectKe
 	return true, sz, lm, nil
 }
 
-// ListObjects lists all files in a share with optional prefix filter.
-// Note: Azure Files uses a hierarchical structure, so we need to recursively list directories.
-func (af *AzureFileBackend) ListObjects(ctx context.Context, bucketName, prefix string) (objects []string, err error) {
-	defer func() { af.recordAzureRequest(ctx, "ListObjects", err) }()
-
+// listAllObjects returns all files in a share with optional prefix filtering.
+// Caller is responsible for telemetry recording to avoid double counting.
+func (af *AzureFileBackend) listAllObjects(ctx context.Context, bucketName, prefix string) (objects []string, err error) {
 	shareClient := af.getShareClient(bucketName)
 	rootDirClient := shareClient.NewRootDirectoryClient()
 
@@ -415,7 +414,6 @@ func (af *AzureFileBackend) ListObjects(ctx context.Context, bucketName, prefix 
 				}
 			}
 		}
-
 		return nil
 	}
 
@@ -425,6 +423,45 @@ func (af *AzureFileBackend) ListObjects(ctx context.Context, bucketName, prefix 
 	}
 
 	return objects, nil
+}
+
+// ListObjects lists all files in a share with optional prefix filter.
+func (af *AzureFileBackend) ListObjects(ctx context.Context, bucketName, prefix string) (objects []string, err error) {
+	defer func() { af.recordAzureRequest(ctx, "ListObjects", err) }()
+	return af.listAllObjects(ctx, bucketName, prefix)
+}
+
+// ListObjectsV2 returns a single page of files with pagination tokens encoded as offsets.
+func (af *AzureFileBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []string, nextContinuationToken string, err error) {
+	defer func() { af.recordAzureRequest(ctx, "ListObjects", err) }()
+
+	allObjects, err := af.listAllObjects(ctx, bucketName, prefix)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if maxResults <= 0 {
+		maxResults = 1000
+	}
+
+	offset := 0
+	if continuationToken != "" {
+		if parsed, parseErr := strconv.Atoi(continuationToken); parseErr == nil && parsed >= 0 && parsed < len(allObjects) {
+			offset = parsed
+		}
+	}
+
+	end := offset + int(maxResults)
+	if end > len(allObjects) {
+		end = len(allObjects)
+	}
+
+	objects = allObjects[offset:end]
+	if end < len(allObjects) {
+		nextContinuationToken = strconv.Itoa(end)
+	}
+
+	return objects, nextContinuationToken, nil
 }
 
 // GetObject returns file data and metadata for S3 compatibility.

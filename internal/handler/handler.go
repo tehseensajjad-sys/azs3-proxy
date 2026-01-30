@@ -266,10 +266,23 @@ func (h *S3Handler) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) 
 func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	prefix := r.URL.Query().Get("prefix")
+	continuationToken := r.URL.Query().Get("continuation-token")
+	maxKeys := 1000
+	if maxKeysStr := r.URL.Query().Get("max-keys"); maxKeysStr != "" {
+		if parsed, err := strconv.Atoi(maxKeysStr); err == nil && parsed >= 0 {
+			if parsed == 0 {
+				maxKeys = 1000
+			} else if parsed > 1000 {
+				maxKeys = 1000
+			} else {
+				maxKeys = parsed
+			}
+		}
+	}
 	h.logger.Debug("ListObjectsV2 request", zap.String("bucket", bucket), zap.String("prefix", prefix))
 
-	// Fetch objects from backend with optional prefix filtering
-	objects, err := h.backend.ListObjects(r.Context(), bucket, prefix)
+	// Fetch objects from backend with pagination
+	objects, nextToken, err := h.backend.ListObjectsV2(r.Context(), bucket, prefix, continuationToken, int32(maxKeys))
 	if err != nil {
 		h.logger.Error("failed to list objects", zap.Error(err), zap.String("bucket", bucket))
 		h.stats.RecordListObjectsV2(false)
@@ -301,13 +314,17 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Build and return S3 ListObjects response
-	resp := models.ListObjectsResponse{
-		Name:        bucket,
-		Prefix:      prefix,
-		MaxKeys:     1000,
-		IsTruncated: false,
-		Contents:    objList,
+	isTruncated := nextToken != ""
+	// Build and return S3 ListObjectsV2 response
+	resp := models.ListObjectsV2Response{
+		Name:                  bucket,
+		Prefix:                prefix,
+		ContinuationToken:     continuationToken,
+		NextContinuationToken: nextToken,
+		KeyCount:              len(objList),
+		MaxKeys:               maxKeys,
+		IsTruncated:           isTruncated,
+		Contents:              objList,
 	}
 
 	w.Header().Set("Content-Type", "application/xml")

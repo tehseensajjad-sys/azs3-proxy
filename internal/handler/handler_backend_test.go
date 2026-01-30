@@ -46,6 +46,10 @@ func (f *fakeBackend) HeadObject(ctx context.Context, bucketName, objectKey stri
 func (f *fakeBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]string, error) {
 	return nil, nil
 }
+func (f *fakeBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+	objects, err := f.ListObjects(ctx, bucketName, prefix)
+	return objects, "", err
+}
 func (f *fakeBackend) GetObject(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
 	if f.getObjectErr != nil {
 		return backend.ObjectInfo{}, f.getObjectErr

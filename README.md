@@ -3,7 +3,7 @@
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)]()
 [![Language: Go](https://img.shields.io/badge/language-Go-blue)]()
 [![Tests](https://img.shields.io/github/actions/workflow/status/vibhansa-msft/azs3-proxy/tests.yml?branch=main&label=tests)](https://github.com/vibhansa-msft/azs3-proxy/actions)
-[![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
+[![Coverage](https://img.shields.io/badge/coverage-75.1%25-brightgreen)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/vibhansa-msft/azs3-proxy/blob/main/LICENSE)
 
 S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage or Azure Files using Azure Go SDK. Enables S3 clients to work with Azure storage backends.
@@ -25,6 +25,7 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage or
 - ✅ Multipart uploads for large objects
 - ✅ Object versioning support
 - ✅ CopyObject support (server-side copy)
+- ✅ ListObjectsV2 pagination (Blob: native markers; Files: offset-based paging)
 - ✅ Streaming support (no full object buffering)
 - ✅ Connection pooling & concurrency optimization
 - ✅ Client connection caching for improved performance

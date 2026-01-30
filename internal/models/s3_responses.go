@@ -26,7 +26,7 @@ type Owner struct {
 	DisplayName string `xml:"DisplayName"` // Owner's display name (optional in response)
 }
 
-// ListObjectsResponse represents the S3 API response for the ListObjects/ListObjectsV2 operation.
+// ListObjectsResponse represents the S3 API response for the legacy ListObjects operation.
 // It contains objects in a bucket, pagination info, and optionally common prefixes for delimiter-based listing.
 type ListObjectsResponse struct {
 	XMLName        xml.Name `xml:"ListBucketResult"`      // XML root element name
@@ -37,6 +37,21 @@ type ListObjectsResponse struct {
 	IsTruncated    bool     `xml:"IsTruncated"`           // Whether more results exist
 	Contents       []Object `xml:"Contents"`              // List of objects
 	CommonPrefixes []string `xml:"CommonPrefixes>Prefix"` // Common prefixes when using delimiter
+}
+
+// ListObjectsV2Response represents the S3 API response for the ListObjectsV2 operation.
+// It includes V2-specific pagination tokens and key counts.
+type ListObjectsV2Response struct {
+	XMLName               xml.Name `xml:"ListBucketResult"` // XML root element name
+	Name                  string   `xml:"Name"`             // Bucket name
+	Prefix                string   `xml:"Prefix"`           // Request prefix filter
+	ContinuationToken     string   `xml:"ContinuationToken,omitempty"`
+	NextContinuationToken string   `xml:"NextContinuationToken,omitempty"`
+	KeyCount              int      `xml:"KeyCount"`              // Number of keys in this response
+	MaxKeys               int      `xml:"MaxKeys"`               // Maximum keys returned
+	IsTruncated           bool     `xml:"IsTruncated"`           // Whether more results exist
+	Contents              []Object `xml:"Contents"`              // List of objects
+	CommonPrefixes        []string `xml:"CommonPrefixes>Prefix"` // Common prefixes when using delimiter
 }
 
 // Object represents a single object/key in the list objects response.

@@ -59,6 +59,7 @@ type StorageBackend interface {
 	// exists will be false and size/lastModified will be zero values.
 	HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, size int64, lastModified time.Time, err error)
 	ListObjects(ctx context.Context, bucketName, prefix string) ([]string, error)
+	ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []string, nextContinuationToken string, err error)
 
 	// Multipart upload operations
 	InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (uploadID string, err error)

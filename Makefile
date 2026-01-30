@@ -1,9 +1,12 @@
-.PHONY: all build test lint clean docker-build run stop test-app collector benchmark ray-s3-proxy-test
+.PHONY: all build test lint clean docker-build run stop test-app collector benchmark ray-s3-proxy-test coverage update-coverage
 
 # Build variables
 BINARY_NAME=azs3-proxy
 DOCKER_IMAGE=azs3-proxy
 VERSION?=0.1.0
+COVER_PROFILE?=coverage.out
+COVER_HTML?=coverage.html
+COVER_MIN?=75.0
 
 all: lint test build
 
@@ -42,6 +45,14 @@ test-app:
 test-compliance:
 	go test -v -race ./test/compliance/...
 
+coverage:
+	@echo "Running tests with coverage..."
+	@go test -count=1 -coverprofile=$(COVER_PROFILE) ./...
+	@TOTAL=$$(go tool cover -func=$(COVER_PROFILE) | awk '/^total:/ {print substr($$3,1,length($$3)-1)}'); \
+		echo "Total coverage: $$TOTAL%"; \
+		awk -v total=$$TOTAL -v min=$(COVER_MIN) 'BEGIN { if (total+0 < min) exit 1; }' || { echo "Coverage below $(COVER_MIN)%"; exit 1; }
+	@go tool cover -html=$(COVER_PROFILE) -o $(COVER_HTML)
+
 lint:
 	golangci-lint run
 
@@ -53,15 +64,15 @@ clean:
 docker-build:
 	docker build -t $(DOCKER_IMAGE):$(VERSION) .
 
-update-coverage:
-	@echo "Running tests and updating coverage..."
-	@go test -count=1 -coverprofile=coverage.out ./... > /dev/null || { echo "Tests failed"; exit 1; }
-	@go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
-	@COVERAGE=$$(go tool cover -func=coverage.out | grep total | awk '{print substr($$3, 1, length($$3)-1)}'); \
-	echo "Current coverage: $$COVERAGE%"; \
-	COLOR=$$(echo "$$COVERAGE" | awk '{if ($$1 >= 75.0) print "brightgreen"; else print "yellow"}'); \
-	sed -i "s/coverage-[0-9.]*%25-[a-z]*/coverage-$$COVERAGE%25-$$COLOR/" README.md
+update-coverage: coverage
+	@TOTAL=$$(go tool cover -func=$(COVER_PROFILE) | awk '/^total:/ {print substr($$3,1,length($$3)-1)}'); \
+	COLOR=$$(echo "$$TOTAL" | awk '{if ($$1 >= $(COVER_MIN)) print "brightgreen"; else print "yellow"}'); \
+	if grep -q "coverage-[0-9.]*%25-[a-z]*" README.md; then \
+		sed -i -E "s/coverage-[0-9.]+%25-[a-z]+/coverage-$$TOTAL%25-$$COLOR/" README.md; \
+		echo "Updated README badge to $$TOTAL% ($$COLOR)"; \
+	else \
+		echo "Coverage badge not found in README.md; skipping badge update"; \
+	fi
 
 pre-commit: lint test update-coverage
 
@@ -118,6 +129,27 @@ ray-s3-proxy-test:
 	AWS_ENDPOINT_URL_S3=$${PROXY_URL:-http://localhost:8080} \
 	RAY_UPLOAD_DIR=$${RAY_UPLOAD_DIR:-s3://$${BUCKET_NAME:-ray-test}/ray-results/} \
 	python3 ./test/integration/ray_s3_proxy_test.py
+
+listv2-load-test:
+	@if [ -f .env ]; then \
+		echo "Loading .env"; \
+		set -a && . ./.env && set +a; \
+	else \
+		echo "Missing .env; relying on existing env vars"; \
+	fi; \
+	pip install -q boto3; \
+	AWS_ENDPOINT_URL=$${PROXY_URL:-$${AWS_ENDPOINT_URL:-http://localhost:8080}} \
+	AWS_S3_ADDRESSING_STYLE=$${AWS_S3_ADDRESSING_STYLE:-path} \
+	AWS_USE_PATH_STYLE_ENDPOINT=$${AWS_USE_PATH_STYLE_ENDPOINT:-true} \
+	AWS_ACCESS_KEY_ID=$${S3_ACCESS_KEY:-$${AWS_ACCESS_KEY_ID:-}} \
+	AWS_SECRET_ACCESS_KEY=$${S3_SECRET_KEY:-$${AWS_SECRET_ACCESS_KEY:-}} \
+	AWS_REGION=$${AWS_REGION:-$${AWS_DEFAULT_REGION:-us-east-1}} \
+	COUNT=$${COUNT:-25000} \
+	SIZE_MB=$${SIZE_MB:-1} \
+	CONCURRENCY=$${CONCURRENCY:-32} \
+	BUCKET_NAME=$${BUCKET_NAME:-listv2-loadtest} \
+	PREFIX=$${PREFIX:-loadtest/} \
+	python3 test/integration/list_objects_v2_load_test.py --bucket $$BUCKET_NAME --prefix "$$PREFIX" --count $$COUNT --size-mb $$SIZE_MB --concurrency $$CONCURRENCY
 	
 benchmark: collector
 	@echo "Cleaning up previous benchmark runs..."

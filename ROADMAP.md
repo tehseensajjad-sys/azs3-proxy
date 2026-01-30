@@ -10,7 +10,6 @@ Completed items have been cleared; this list reflects current pending work for `
 
 ## 0. Test and stability (pending)
 - **[P0] LMCache Test**: Test proxy with LM Cache offload to S3.
-- **[P0] Ray Test**: Test proxy with Ray Job to connect to Azure via S3 APIs.
 
 ## 1. Telemetry & Observability (pending)
 - **[P3] Telemetry Integration Tests**: Add tests to verify metrics are actually being emitted to the configured exporters.
@@ -19,7 +18,6 @@ Completed items have been cleared; this list reflects current pending work for `
 - **[P2] S3 ACL / Canned ACL Support**: Basic mapping of S3 ACLs (private, public-read) to Azure container/blob access levels.
 - **[P2] Presigned URLs**: Implement generation of presigned URLs.
 - **[P3] Lifecycle Policies**: Mapping S3 lifecycle rules to Azure Blob Lifecycle management.
-- **[P3] ListObjectsV2 Pagination**: Verify and robustify the pagination token mapping between S3 (ContinuationToken) and Azure (Marker).
 
 ## 3. Infrastructure & Deployment (pending)
 - **[P2] Helm Chart**: Create Kubernetes deployment charts for easy deployment.

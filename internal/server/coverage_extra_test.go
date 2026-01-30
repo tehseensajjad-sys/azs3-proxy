@@ -40,6 +40,10 @@ func (stubBackend) HeadObject(ctx context.Context, bucketName, objectKey string)
 func (stubBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]string, error) {
 	return []string{"obj"}, nil
 }
+func (stubBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+	objs, _ := (stubBackend{}).ListObjects(ctx, bucketName, prefix)
+	return objs, "", nil
+}
 func (stubBackend) InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (string, error) {
 	return "upload", nil
 }
