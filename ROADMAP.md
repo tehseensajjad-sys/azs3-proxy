@@ -19,10 +19,7 @@ Completed items have been cleared; this list reflects current pending work for `
 - **[P2] Presigned URLs**: Implement generation of presigned URLs.
 - **[P3] Lifecycle Policies**: Mapping S3 lifecycle rules to Azure Blob Lifecycle management.
 
-## 3. Infrastructure & Deployment (pending)
-- **[P2] Helm Chart**: Create Kubernetes deployment charts for easy deployment.
-
-## 4. Testing & QA (pending)
+## 3. Testing & QA (pending)
 - **[P2] Load/Performance Testing**: Benchmarks for throughput and latency, especially measuring the impact of the caching layer.
 
 
