@@ -130,7 +130,7 @@ func (s *S3ProxyServer) registerMiddleware() {
 
 			// Inject logger with request ID into context
 			// We use a string key "requestID" to make it accessible without importing chi middleware in other packages
-			ctx := context.WithValue(r.Context(), "requestID", reqID)
+			ctx := context.WithValue(r.Context(), "requestID", reqID) //nolint:staticcheck // string key aligns with RequestIDFromContext
 
 			requestLogger.Debug("request started",
 				zap.String("method", r.Method),

@@ -179,7 +179,9 @@ func TestAzureFileOperationsWithFakeTransport(t *testing.T) {
 	_ = af.PutObject(ctx, "bucket", "file", int64(len("data")), strings.NewReader("data"))
 	_ = af.CopyObject(ctx, "bucket", "file", "bucket", "file-copy")
 	_ = af.DeleteObject(ctx, "bucket", "file")
-	af.HeadObject(ctx, "bucket", "file")
+	if _, _, _, err := af.HeadObject(ctx, "bucket", "file"); err != nil {
+		t.Logf("HeadObject returned error: %v", err)
+	}
 
 	// Multipart lifecycle with minimal parts to cover validation paths
 	uploadID, err := af.InitiateMultipartUpload(ctx, "bucket", "multi.bin")
@@ -215,8 +217,12 @@ func TestAzureFileOperationsWithFakeTransport(t *testing.T) {
 	if enabled, _ := af.GetVersioning(ctx, "bucket"); !enabled {
 		t.Fatalf("expected versioning enabled flag")
 	}
-	af.GetObjectVersion(ctx, "bucket", "file", "v1")
-	af.DeleteObjectVersion(ctx, "bucket", "file", "v1")
+	if _, err := af.GetObjectVersion(ctx, "bucket", "file", "v1"); err != nil {
+		t.Logf("GetObjectVersion returned error: %v", err)
+	}
+	if err := af.DeleteObjectVersion(ctx, "bucket", "file", "v1"); err != nil {
+		t.Logf("DeleteObjectVersion returned error: %v", err)
+	}
 
 	_ = af.Close()
 }

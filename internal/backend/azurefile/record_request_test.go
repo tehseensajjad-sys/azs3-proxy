@@ -20,7 +20,7 @@ func TestRecordAzureRequestTracksTelemetryAndLogs(t *testing.T) {
 
 	backend := &AzureFileBackend{logger: logger}
 
-	ctx := context.WithValue(context.Background(), "requestID", "req-123")
+	ctx := context.WithValue(context.Background(), "requestID", "req-123") //nolint:staticcheck // tests mirror production string keys
 	backend.recordAzureRequest(ctx, "ListBuckets", fakeError{code: "FailCode"})
 
 	if logs.Len() != 1 {

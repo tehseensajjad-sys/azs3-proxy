@@ -615,7 +615,9 @@ func (ab *AzureBlobBackend) ListParts(ctx context.Context, bucketName, objectKey
 		if err == nil {
 			// Try to parse the part number from the block ID
 			// Format is "%010d"
-			fmt.Sscanf(string(decoded), "%d", &partNum)
+			if _, scanErr := fmt.Sscanf(string(decoded), "%d", &partNum); scanErr != nil {
+				ab.logger.Debug("failed to parse part number", zap.Error(scanErr))
+			}
 		}
 
 		parts = append(parts, map[string]interface{}{

@@ -15,7 +15,7 @@ func TestRecordAzureRequestCapturesIDs(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	backend := &AzureBlobBackend{logger: logger}
 
-	ctx := context.WithValue(context.Background(), "requestID", "s3-req-123")
+	ctx := context.WithValue(context.Background(), "requestID", "s3-req-123") //nolint:staticcheck // tests mirror production string keys
 
 	resp := &http.Response{Header: http.Header{}}
 	resp.Header.Set("x-ms-request-id", "azure-req-id")

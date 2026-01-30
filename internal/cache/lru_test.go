@@ -567,28 +567,38 @@ func BenchmarkGet(b *testing.B) {
 }
 
 func TestLRUCacheFileMissing(t *testing.T) {
-dir := t.TempDir()
-src := filepath.Join(dir, "src.txt")
-os.WriteFile(src, []byte("data"), 0644)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
 
-lc, _ := NewLRUCache(filepath.Join(dir, "cache"), 1000, time.Minute)
-defer lc.Close()
+	if err := os.WriteFile(src, []byte("data"), 0644); err != nil {
+		t.Fatalf("failed to write src file: %v", err)
+	}
 
-lc.Put("key", src, 4)
-path, err := lc.Get("key")
-if err != nil || path == "" {
-t.Fatalf("expected hit")
-}
+	lc, err := NewLRUCache(filepath.Join(dir, "cache"), 1000, time.Minute)
+	if err != nil {
+		t.Fatalf("NewLRUCache error: %v", err)
+	}
+	defer func() { _ = lc.Close() }()
 
-// Manually remove cached file from disk
-os.Remove(path)
+	if err := lc.Put("key", src, 4); err != nil {
+		t.Fatalf("Put error: %v", err)
+	}
+	path, err := lc.Get("key")
+	if err != nil || path == "" {
+		t.Fatalf("expected hit, got path %q, err %v", path, err)
+	}
 
-// Now Get should return miss because file is gone
-path2, err := lc.Get("key")
-if err != nil {
-t.Fatalf("Get error: %v", err)
-}
-if path2 != "" {
-t.Fatal("expected miss/cleanup after file removal")
-}
+	// Manually remove cached file from disk
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("failed to remove cached file: %v", err)
+	}
+
+	// Now Get should return miss because file is gone
+	path2, err := lc.Get("key")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if path2 != "" {
+		t.Fatal("expected miss/cleanup after file removal")
+	}
 }

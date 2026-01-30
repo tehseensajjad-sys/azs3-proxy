@@ -91,7 +91,7 @@ func (f *fakeBackend) Close() error { return nil }
 
 func TestListBucketsHandlerSuccess(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	fb := &fakeBackend{listBuckets: []string{"a", "b"}}
 	h := NewS3Handler(fb, logger)
@@ -107,7 +107,7 @@ func TestListBucketsHandlerSuccess(t *testing.T) {
 
 func TestGetObjectHandlerErrorAndSuccess(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Error path
 	fb := &fakeBackend{getObjectErr: errors.New("not found")}
@@ -144,7 +144,7 @@ func TestGetObjectHandlerErrorAndSuccess(t *testing.T) {
 
 func TestPutObjectHandlerError(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	fb := &fakeBackend{putObjectErr: errors.New("write error")}
 	h := NewS3Handler(fb, logger)

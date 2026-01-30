@@ -10,7 +10,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,16 +21,6 @@ import (
 	"github.com/vibhansa-msft/azs3-proxy/internal/models"
 	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
-
-// bufferPool is a pool of 1MB buffers to reduce allocation overhead during large file transfers.
-// This significantly reduces GC pressure compared to allocating new buffers for each request.
-var bufferPool = sync.Pool{
-	New: func() interface{} {
-		// 1MB buffer size to reduce syscall overhead for high throughput
-		b := make([]byte, 1024*1024)
-		return &b
-	},
-}
 
 // S3Handler handles all S3 API requests and converts them to backend storage operations.
 // It acts as a bridge between S3 API semantics and the underlying storage backend.
@@ -561,7 +550,6 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Stream object data to response
 	// We avoid buffering the entire object in memory, which improves TTFB and reduces memory usage
-	var bytesWritten int64
 	var errCopy error
 
 	// If caching is enabled and object is small enough, buffer it for cache
@@ -584,7 +572,6 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Write to response
 		_, _ = w.Write(buf[:n])
-		bytesWritten = int64(n)
 
 		// Async cache
 		dataToCache := buf[:n]
@@ -608,7 +595,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		// Use bufio.NewWriterSize to coalesce writes into 1MB chunks, reducing write syscalls.
 		// io.Copy does small reads/writes if the source (network) yields small chunks.
 		bw := bufio.NewWriterSize(w, 1024*1024)
-		bytesWritten, errCopy = io.Copy(bw, objInfo.Body)
+		_, errCopy = io.Copy(bw, objInfo.Body)
 		// Ensure flush happens
 		if flushErr := bw.Flush(); flushErr != nil && errCopy == nil {
 			errCopy = flushErr
@@ -622,13 +609,6 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Log throughput metric
-		if h.telMgr != nil {
-			duration := time.Since(time.Now()) // Approximation, fix later if needed
-			// Actually we are at end of request, start time is lost if not passed.
-			// Just recording bytes for now.
-			_ = bytesWritten // silence unused error
-			_ = duration
-		}
 	}
 
 	h.stats.RecordGetObject(true)

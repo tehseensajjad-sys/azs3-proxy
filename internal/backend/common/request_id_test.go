@@ -12,9 +12,9 @@ import (
 )
 
 func TestRequestIDFromContextPriority(t *testing.T) {
-	ctx := context.WithValue(context.Background(), "request_id", "lower")
-	ctx = context.WithValue(ctx, "requestID", "upper")
-	ctx = context.WithValue(ctx, "X-Request-ID", "header")
+	ctx := context.WithValue(context.Background(), "request_id", "lower") //nolint:staticcheck // production uses string keys
+	ctx = context.WithValue(ctx, "requestID", "upper")                    //nolint:staticcheck
+	ctx = context.WithValue(ctx, "X-Request-ID", "header")                //nolint:staticcheck
 
 	if got := RequestIDFromContext(ctx); got != "upper" {
 		t.Fatalf("expected priority requestID, got %q", got)
@@ -35,7 +35,7 @@ func (rt *recordingTransport) Do(req *http.Request) (*http.Response, error) {
 }
 
 func TestRequestIDPolicySetsHeader(t *testing.T) {
-	ctx := context.WithValue(context.Background(), "requestID", "abc123")
+	ctx := context.WithValue(context.Background(), "requestID", "abc123") //nolint:staticcheck // production uses string keys
 	transport := &recordingTransport{}
 	pipeline := runtime.NewPipeline("module", "v1", runtime.PipelineOptions{
 		PerRetry: []policy.Policy{RequestIDPolicy{}},
@@ -54,7 +54,7 @@ func TestRequestIDPolicySetsHeader(t *testing.T) {
 		t.Fatalf("expected header set from context, got %q", got)
 	}
 
-	ctx = context.WithValue(context.Background(), "requestID", "abc123")
+	ctx = context.WithValue(context.Background(), "requestID", "abc123") //nolint:staticcheck
 	req, err = runtime.NewRequest(ctx, http.MethodGet, "https://example.com")
 	if err != nil {
 		t.Fatalf("failed to build request: %v", err)
