@@ -65,11 +65,7 @@ docker-build:
 	docker build -t $(DOCKER_IMAGE):$(VERSION) .
 
 docker-release:
-	@if [ -f .env ]; then \
-		echo "Loading .env for Docker Hub creds..."; \
-		source ./.env; \
-	fi; \
-	bash scripts/release_dockerhub.sh
+	@bash -lc 'if [ -f .env ]; then echo "Loading .env for Docker Hub creds..."; source ./.env; fi; bash scripts/release_dockerhub.sh'
 
 update-coverage: coverage
 	@TOTAL=$$(go tool cover -func=$(COVER_PROFILE) | awk '/^total:/ {print substr($$3,1,length($$3)-1)}'); \
