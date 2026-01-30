@@ -10,6 +10,7 @@ Completed items have been cleared; this list reflects current pending work for `
 
 ## 0. Test and stability (pending)
 - **[P0] LMCache Test**: Test proxy with LM Cache offload to S3.
+- **[P0] Ray Test**: Test proxy with Ray Job to connect to Azure via S3 APIs.
 
 ## 1. Telemetry & Observability (pending)
 - **[P3] Telemetry Integration Tests**: Add tests to verify metrics are actually being emitted to the configured exporters.

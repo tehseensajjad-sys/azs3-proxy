@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean docker-build run stop test-app collector benchmark
+.PHONY: all build test lint clean docker-build run stop test-app collector benchmark ray-s3-proxy-test
 
 # Build variables
 BINARY_NAME=azs3-proxy
@@ -26,9 +26,7 @@ run: build
 		echo "Warning: .env file not found. Running without environment variables."; \
 	fi; \
 	env | grep AZURE; \
-	./$(BINARY_NAME) --pprof 
-	
-# 	--log-level=debug
+	./$(BINARY_NAME) --log-level=debug
 
 stop: 
 	./$(BINARY_NAME) --stop
@@ -83,6 +81,44 @@ collector:
 		otel/opentelemetry-collector-contrib:latest
 	@echo "Collector started. View logs with: docker logs -f otel-collector"
 
+remote:
+	./test/benchmarking/create_vm.sh azs3-bench-vm-1767865179 /test/benchmarking/warp_test.sh
+
+ray: run
+	pip install -r test/integration/requirements-ray.txt
+	@if [ -f .env ]; then \
+		set -a && . ./.env && set +a; \
+	else \
+		echo "Missing .env; cannot run"; exit 1; \
+	fi; \
+	AWS_ENDPOINT_URL=$${PROXY_URL:-http://localhost:8080} \
+	AWS_S3_ADDRESSING_STYLE=$${AWS_S3_ADDRESSING_STYLE:-path} \
+	AWS_USE_PATH_STYLE_ENDPOINT=$${AWS_USE_PATH_STYLE_ENDPOINT:-true} \
+	AWS_ACCESS_KEY_ID=$${S3_ACCESS_KEY:-$${AWS_ACCESS_KEY_ID:-}} \
+	AWS_SECRET_ACCESS_KEY=$${S3_SECRET_KEY:-$${AWS_SECRET_ACCESS_KEY:-}} \
+	AWS_REGION=$${AWS_REGION:-$${AWS_DEFAULT_REGION:-us-east-1}} \
+	BUCKET_NAME=$${BUCKET_NAME:-ray-s3-proxy-demo} \
+	timeout 180s python3 test/integration/ray_s3_pipeline.py
+
+ray-s3-proxy-test:
+	@if [ -f .env ]; then \
+		echo "Loading .env"; \
+		set -a && . ./.env && set +a; \
+	else \
+		echo "Missing .env; cannot run"; exit 1; \
+	fi; \
+	AWS_ENDPOINT_URL=$${PROXY_URL:-http://localhost:8080} \
+	AWS_S3_ADDRESSING_STYLE=$${AWS_S3_ADDRESSING_STYLE:-path} \
+	AWS_USE_PATH_STYLE_ENDPOINT=$${AWS_USE_PATH_STYLE_ENDPOINT:-true} \
+	AWS_ACCESS_KEY_ID=$${S3_ACCESS_KEY:-$${AWS_ACCESS_KEY_ID:-}} \
+	AWS_SECRET_ACCESS_KEY=$${S3_SECRET_KEY:-$${AWS_SECRET_ACCESS_KEY:-}} \
+	AWS_REGION=$${AWS_REGION:-$${AWS_DEFAULT_REGION:-us-east-1}} \
+	ARROW_S3_ENDPOINT=$${PROXY_URL:-http://localhost:8080} \
+	AWS_S3_ENDPOINT=$${PROXY_URL:-http://localhost:8080} \
+	AWS_ENDPOINT_URL_S3=$${PROXY_URL:-http://localhost:8080} \
+	RAY_UPLOAD_DIR=$${RAY_UPLOAD_DIR:-s3://$${BUCKET_NAME:-ray-test}/ray-results/} \
+	python3 ./test/integration/ray_s3_proxy_test.py
+	
 benchmark: collector
 	@echo "Cleaning up previous benchmark runs..."
 	rm -rf warp_runs
