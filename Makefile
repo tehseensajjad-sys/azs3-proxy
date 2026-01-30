@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean docker-build run stop test-app collector benchmark ray-s3-proxy-test coverage update-coverage
+.PHONY: all build test lint clean docker-build docker-release run stop test-app collector benchmark ray-s3-proxy-test coverage update-coverage
 
 # Build variables
 BINARY_NAME=azs3-proxy
@@ -63,6 +63,13 @@ clean:
 
 docker-build:
 	docker build -t $(DOCKER_IMAGE):$(VERSION) .
+
+docker-release:
+	@if [ -f .env ]; then \
+		echo "Loading .env for Docker Hub creds..."; \
+		source ./.env; \
+	fi; \
+	bash scripts/release_dockerhub.sh
 
 update-coverage: coverage
 	@TOTAL=$$(go tool cover -func=$(COVER_PROFILE) | awk '/^total:/ {print substr($$3,1,length($$3)-1)}'); \
