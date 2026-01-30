@@ -55,6 +55,7 @@ func TestCompliance(t *testing.T) {
 		S3AccessKeyID:     "test-access-key",
 		S3SecretAccessKey: "test-secret-key",
 		LogLevel:          "error",
+		AzureBackendType:  "blob",
 	}
 
 	if connStr != "" {
