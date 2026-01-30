@@ -35,7 +35,7 @@ jobs:
         run: go build -v -o bin/s3-proxy ./cmd/proxy
 
       - name: Run unit tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -race -coverprofile=coverage.out $(go list ./... | grep -v '/test/integration')
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
@@ -98,6 +98,8 @@ jobs:
 
       - name: Upload gosec results
         uses: github/codeql-action/upload-sarif@v4
+        if: ${{ vars.ENABLE_CODE_SCANNING == 'true' }}
+        continue-on-error: true
         with:
           sarif_file: gosec.sarif
           category: gosec

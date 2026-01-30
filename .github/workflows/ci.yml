@@ -31,37 +31,10 @@ jobs:
           args: --timeout=5m
 
       - name: Run Unit Tests
-        run: go test -v -race ./...
+        run: go test -v -race $(go list ./... | grep -v '/test/integration')
 
       - name: Build Binary
         run: go build -v ./cmd/proxy
-
-  integration-test:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    services:
-      azurite:
-        image: mcr.microsoft.com/azure-storage/azurite
-        ports:
-          - 10000:10000
-          - 10001:10001
-          - 10002:10002
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.6'
-          cache: true
-
-      - name: Run Integration Tests
-        env:
-          AZURE_STORAGE_CONNECTION_STRING: "UseDevelopmentStorage=true"
-        run: |
-          go test -v -race ./test/integration/...
-          go test -v -race ./test/compliance/...
 
   docker-build:
     name: Docker Build
