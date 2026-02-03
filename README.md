@@ -2,7 +2,7 @@
 
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)]()
 [![Language: Go](https://img.shields.io/badge/language-Go-blue)]()
-[![Tests](https://img.shields.io/github/actions/workflow/status/vibhansa-msft/azs3-proxy/tests.yml?branch=main&label=tests)](https://github.com/vibhansa-msft/azs3-proxy/actions)
+[![Tests](https://github.com/vibhansa-msft/azs3-proxy/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/vibhansa-msft/azs3-proxy/actions/workflows/tests.yml)
 [![Coverage](https://img.shields.io/badge/coverage-75.2%25-brightgreen)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/vibhansa-msft/azs3-proxy/blob/main/LICENSE)
 
@@ -38,6 +38,15 @@ S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage or
 
 For a detailed list of supported S3 operations and their Azure Blob Storage equivalents, please refer to the [API Compatibility Matrix](COMPATIBILITY.md).
 
+## Supported S3 APIs (summary)
+
+- **Bucket operations**: ListBuckets, CreateBucket, DeleteBucket, HeadBucket.
+- **Object operations**: PutObject, GetObject, HeadObject, DeleteObject, CopyObject (same-backend copy), ListObjects, ListObjectsV2.
+- **Multipart uploads**: CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload, ListParts, ListMultipartUploads.
+- **Versioning**: EnableVersioning, GetBucketVersioning, GetObjectVersion, DeleteObjectVersion (Blob backend supports versions when enabled; Files backend stubs for compatibility only).
+- **Statistics & errors**: Standard S3 error mapping and basic stats endpoints used by tests.
+- **Not currently supported**: ACLs/Canned ACLs, bucket policies, CORS configuration, notifications/events, object tagging, replication, and S3 Select.
+
 ## Telemetry
 
 For detailed information about metrics, logging, and observability configuration, please refer to the [Telemetry Documentation](TELEMETRY.md).
@@ -55,7 +64,7 @@ For detailed information about metrics, logging, and observability configuration
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.25 or later (CI uses Go 1.25.6)
 - Azure storage account with connection string or account key
 - Docker (optional, for containerized deployment)
 
@@ -492,18 +501,19 @@ Run unit tests:
 make test
 ```
 
-Run compliance/integration tests (requires Azure credentials):
+Run integration/compliance tests (requires Azure credentials and the `integration` build tag):
 
 ```bash
 export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=..."
-make test-compliance
+go test -tags=integration -v ./test/integration/...
+go test -tags=integration -v ./test/compliance/...
 ```
 
 
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all unit tests (default)
 go test -v ./...
 
 # Run with coverage
@@ -522,16 +532,9 @@ go tool cover -html=coverage.out
 
 ### Test Coverage
 
-Current test coverage: **61.4%** across all packages
+For the latest coverage numbers, see the Codecov report and GitHub Actions runs.
 
-- `internal/auth`: 87.9% (SigV4 verification)
-- `internal/models`: 83.3% (error mapping, XML serialization)
-- `internal/config`: 72.0% (config loading & validation)
-- `internal/handler`: 69.5% (HTTP handler routing)
-- `internal/backend/azureblob`: 50.0% (client initialization)
-- `internal/server`: 42.6% (server lifecycle)
-
-**Automated Testing:** All tests run automatically via GitHub Actions on every commit to `main` branch.
+**Automated Testing:** Unit tests run automatically via GitHub Actions on every commit to `main`. Integration/compliance suites are opt-in and require Azure credentials plus the `integration` build tag.
 
 ### Code Structure
 
