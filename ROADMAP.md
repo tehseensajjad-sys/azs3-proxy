@@ -19,7 +19,4 @@ Completed items have been cleared; this list reflects current pending work for `
 - **[P2] Presigned URLs**: Implement generation of presigned URLs.
 - **[P3] Lifecycle Policies**: Mapping S3 lifecycle rules to Azure Blob Lifecycle management.
 
-## 3. Testing & QA (pending)
-- **[P2] Load/Performance Testing**: Benchmarks for throughput and latency, especially measuring the impact of the caching layer.
-
 

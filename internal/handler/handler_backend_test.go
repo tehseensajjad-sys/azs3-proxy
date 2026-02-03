@@ -17,10 +17,11 @@ import (
 
 // fakeBackend implements backend.StorageBackend with configurable behaviors
 type fakeBackend struct {
-	listBuckets   []string
-	getObjectErr  error
-	getObjectData []byte
-	putObjectErr  error
+	listBuckets    []string
+	getObjectErr   error
+	getObjectData  []byte
+	putObjectErr   error
+	getObjectCalls int
 }
 
 func (f *fakeBackend) ListBuckets(ctx context.Context) ([]string, error) { return f.listBuckets, nil }
@@ -54,6 +55,7 @@ func (f *fakeBackend) GetObject(ctx context.Context, bucketName, objectKey strin
 	if f.getObjectErr != nil {
 		return backend.ObjectInfo{}, f.getObjectErr
 	}
+	f.getObjectCalls++
 	return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader(f.getObjectData)), Size: int64(len(f.getObjectData)), LastModified: time.Now()}, nil
 }
 func (f *fakeBackend) InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (string, error) {
