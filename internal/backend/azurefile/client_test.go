@@ -3,11 +3,14 @@ package azurefile
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azfile/service"
@@ -225,4 +228,104 @@ func TestAzureFileOperationsWithFakeTransport(t *testing.T) {
 	}
 
 	_ = af.Close()
+}
+
+// listRangeTransport returns deterministic responses for directory listing, HEAD, and range download requests.
+type listRangeTransport struct {
+	data string
+}
+
+func (listRangeTransport) directoryXML(path string) string {
+	if strings.Contains(path, "dir1") {
+		return "<?xml version=\"1.0\" encoding=\"utf-8\"?><EnumerationResults><Entries><File><Name>nested.txt</Name></File></Entries><NextMarker></NextMarker></EnumerationResults>"
+	}
+	return "<?xml version=\"1.0\" encoding=\"utf-8\"?><EnumerationResults><Entries><File><Name>alpha.txt</Name></File><Directory><Name>dir1</Name></Directory></Entries><NextMarker></NextMarker></EnumerationResults>"
+}
+
+func (lt listRangeTransport) Do(req *http.Request) (*http.Response, error) { // Implements azcore.Transporter
+	q := req.URL.Query()
+	headers := http.Header{}
+	headers.Set("Date", time.Now().UTC().Format(http.TimeFormat))
+
+	if q.Get("restype") == "directory" && q.Get("comp") == "list" {
+		body := lt.directoryXML(req.URL.Path)
+		return &http.Response{StatusCode: http.StatusOK, Header: headers, Body: io.NopCloser(strings.NewReader(body))}, nil
+	}
+
+	if req.Method == http.MethodHead {
+		headers.Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+		headers.Set("Content-Length", strconv.Itoa(len(lt.data)))
+		return &http.Response{StatusCode: http.StatusOK, Header: headers, Body: http.NoBody}, nil
+	}
+
+	body := lt.data
+	status := http.StatusOK
+	rng := req.Header.Get("Range")
+	if rng == "" {
+		rng = req.Header.Get("x-ms-range")
+	}
+	if strings.HasPrefix(rng, "bytes=") {
+		parts := strings.Split(strings.TrimPrefix(rng, "bytes="), "-")
+		start, _ := strconv.Atoi(parts[0])
+		end := len(lt.data) - 1
+		if len(parts) > 1 && parts[1] != "" {
+			if parsed, err := strconv.Atoi(parts[1]); err == nil {
+				end = parsed
+			}
+		}
+		if start < 0 {
+			start = 0
+		}
+		if end >= len(lt.data) {
+			end = len(lt.data) - 1
+		}
+		if start <= end {
+			body = lt.data[start : end+1]
+		} else {
+			body = ""
+		}
+		headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(lt.data)))
+		status = http.StatusPartialContent
+	}
+	headers.Set("Content-Length", strconv.Itoa(len(body)))
+
+	return &http.Response{StatusCode: status, Header: headers, Body: io.NopCloser(strings.NewReader(body))}, nil
+}
+
+func TestAzureFileListAndRange(t *testing.T) {
+	client, err := service.NewClientWithNoCredential("https://example.com", &service.ClientOptions{ClientOptions: azcore.ClientOptions{Transport: listRangeTransport{data: "helloworld"}}})
+	if err != nil {
+		t.Fatalf("failed to build client: %v", err)
+	}
+	af := &AzureFileBackend{
+		client:           client,
+		multipartUploads: make(map[string]*MultipartUploadMetadata),
+		versionedShares:  make(map[string]bool),
+		logger:           zap.NewNop(),
+	}
+
+	ctx := context.Background()
+	objects, err := af.ListObjects(ctx, "share", "")
+	if err != nil || len(objects) != 2 {
+		t.Fatalf("expected two objects from listing, got %v err=%v", objects, err)
+	}
+
+	page, token, err := af.ListObjectsV2(ctx, "share", "", "", 1)
+	if err != nil || len(page) != 1 || token == "" {
+		t.Fatalf("expected paginated results with continuation token, got page=%v token=%q err=%v", page, token, err)
+	}
+
+	info, err := af.GetObjectRange(ctx, "share", "alpha.txt", 0, 5)
+	if err != nil {
+		t.Fatalf("GetObjectRange failed: %v", err)
+	}
+	data, _ := io.ReadAll(info.Body)
+	if !strings.HasPrefix(string(data), "hello") {
+		t.Fatalf("unexpected range data: %s", string(data))
+	}
+
+	versions, err := af.ListObjectVersions(ctx, "share", "")
+	if err != nil || len(versions) != len(objects) {
+		t.Fatalf("expected versions for each object, got %d err=%v", len(versions), err)
+	}
 }

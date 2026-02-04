@@ -497,6 +497,56 @@ func (af *AzureFileBackend) GetObject(ctx context.Context, bucketName, objectKey
 	return info, nil
 }
 
+// GetObjectRange returns a byte range for the file, clamping to the file size when needed.
+func (af *AzureFileBackend) GetObjectRange(ctx context.Context, bucketName, objectKey string, offset, length int64) (info backend.ObjectInfo, err error) {
+	defer func() { af.recordAzureRequest(ctx, "GetObjectRange", err) }()
+
+	shareClient := af.getShareClient(bucketName)
+	fileClient := shareClient.NewRootDirectoryClient().NewFileClient(objectKey)
+
+	props, err := fileClient.GetProperties(ctx, nil)
+	if err != nil {
+		return info, fmt.Errorf("get file properties failed: %w", err)
+	}
+
+	if props.ContentLength != nil {
+		info.Size = *props.ContentLength
+	}
+	if props.LastModified != nil {
+		info.LastModified = props.LastModified.UTC()
+	} else {
+		info.LastModified = time.Now().UTC()
+	}
+
+	if info.Size <= 0 {
+		return info, fmt.Errorf("object has zero length")
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= info.Size {
+		return info, fmt.Errorf("range start beyond size")
+	}
+	if length <= 0 {
+		length = info.Size - offset
+	}
+	end := offset + length - 1
+	if end >= info.Size {
+		end = info.Size - 1
+	}
+	count := end - offset + 1
+
+	resp, err := fileClient.DownloadStream(ctx, &file.DownloadStreamOptions{
+		Range: file.HTTPRange{Offset: offset, Count: count},
+	})
+	if err != nil {
+		return info, fmt.Errorf("download range failed: %w", err)
+	}
+
+	info.Body = resp.Body
+	return info, nil
+}
+
 // InitiateMultipartUpload initiates a new multipart upload.
 // Azure Files doesn't have native multipart upload, so we simulate it by buffering parts.
 func (af *AzureFileBackend) InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (string, error) {

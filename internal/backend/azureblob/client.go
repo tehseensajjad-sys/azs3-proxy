@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -429,6 +430,61 @@ func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey
 		info.Body = resp.Body
 	}
 
+	return info, nil
+}
+
+// GetObjectRange returns a specific byte range for the object. The range is
+// [offset, offset+length-1]. If the range exceeds the object size, Azure will
+// clamp it; we also clamp proactively to avoid unnecessary errors.
+func (ab *AzureBlobBackend) GetObjectRange(ctx context.Context, bucketName, objectKey string, offset, length int64) (backend.ObjectInfo, error) {
+	var info backend.ObjectInfo
+	if length <= 0 {
+		return info, fmt.Errorf("invalid range length %d", length)
+	}
+
+	blobClient := ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey)
+
+	// Fetch properties to clamp range and set metadata
+	props, err := blobClient.GetProperties(ctx, nil)
+	if err != nil {
+		return info, fmt.Errorf("get blob properties failed: %w", err)
+	}
+
+	totalSize := int64(0)
+	if props.ContentLength != nil {
+		totalSize = *props.ContentLength
+	}
+
+	// Clamp length to remaining bytes if offset beyond size
+	if offset >= totalSize && totalSize > 0 {
+		return info, fmt.Errorf("range offset beyond object size")
+	}
+
+	// Azure range count can be set to <= remaining size; clamp to avoid 416
+	if totalSize > 0 {
+		remaining := totalSize - offset
+		length = int64(math.Min(float64(length), float64(remaining)))
+	}
+
+	options := &azblob.DownloadStreamOptions{
+		Range: azblob.HTTPRange{
+			Offset: offset,
+			Count:  length,
+		},
+	}
+
+	resp, err := blobClient.DownloadStream(ctx, options)
+	if err != nil {
+		return info, fmt.Errorf("download blob range failed: %w", err)
+	}
+
+	info.Body = resp.Body
+	if props.LastModified != nil {
+		info.LastModified = props.LastModified.UTC()
+	} else {
+		info.LastModified = time.Now().UTC()
+	}
+	info.Size = length
 	return info, nil
 }
 

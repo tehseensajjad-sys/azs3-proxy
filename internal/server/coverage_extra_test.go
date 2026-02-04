@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,20 @@ func (stubBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket
 }
 func (stubBackend) GetObject(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
 	return backend.ObjectInfo{Body: io.NopCloser(strings.NewReader("ok")), LastModified: time.Now(), Size: 2}, nil
+}
+func (stubBackend) GetObjectRange(ctx context.Context, bucketName, objectKey string, offset, length int64) (backend.ObjectInfo, error) {
+	data := "ok"
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > int64(len(data)) {
+		return backend.ObjectInfo{}, fmt.Errorf("range start beyond size")
+	}
+	if length <= 0 || offset+length > int64(len(data)) {
+		length = int64(len(data)) - offset
+	}
+	end := offset + length
+	return backend.ObjectInfo{Body: io.NopCloser(strings.NewReader(data[offset:end])), LastModified: time.Now(), Size: int64(len(data))}, nil
 }
 func (stubBackend) DeleteObject(ctx context.Context, bucketName, objectKey string) error { return nil }
 func (stubBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {

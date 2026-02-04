@@ -2,7 +2,9 @@ package handler
 
 import (
 	"bufio"
+	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -482,6 +484,16 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Range requests with cache: handle block caching path
+	if h.cacheManager != nil {
+		rangeHeader := r.Header.Get("Range")
+		if rangeHeader != "" {
+			if handled := h.handleRangeGetWithCache(w, r, bucket, key); handled {
+				return
+			}
+		}
+	}
+
 	// If caching is enabled, check cache first
 	if h.cacheManager != nil {
 		cacheKey := generateCacheKey(bucket, key)
@@ -553,8 +565,8 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	var errCopy error
 
 	// If caching is enabled and object is small enough, buffer it for cache
-	// Threshold: 100MB
-	const cacheSizeThreshold = 100 * 1024 * 1024
+	// Threshold: 50MB
+	const cacheSizeThreshold = 50 * 1024 * 1024
 	shouldCache := h.cacheManager != nil && objInfo.Size > 0 && objInfo.Size <= cacheSizeThreshold
 
 	if shouldCache {
@@ -614,6 +626,261 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	h.stats.RecordGetObject(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "GetObject", true, "")
+	}
+}
+
+var errMultipleRanges = errors.New("multiple ranges not supported")
+
+// parseSingleRange parses a single HTTP Range header of the form "bytes=start-end" and clamps
+// to the provided size. Supports suffix ranges (e.g. "bytes=-500") and open-ended ranges
+// (e.g. "bytes=100-"). Returns start and end offsets inclusive.
+func parseSingleRange(rangeHeader string, size int64) (int64, int64, error) {
+	if rangeHeader == "" || size <= 0 {
+		return 0, 0, fmt.Errorf("missing or empty range")
+	}
+	if !strings.HasPrefix(rangeHeader, "bytes=") {
+		return 0, 0, fmt.Errorf("invalid unit")
+	}
+
+	spec := strings.TrimPrefix(rangeHeader, "bytes=")
+	parts := strings.Split(spec, ",")
+	if len(parts) != 1 {
+		return 0, 0, errMultipleRanges
+	}
+
+	rangeSpec := strings.TrimSpace(parts[0])
+	dash := strings.Index(rangeSpec, "-")
+	if dash < 0 {
+		return 0, 0, fmt.Errorf("invalid range format")
+	}
+
+	startStr := strings.TrimSpace(rangeSpec[:dash])
+	endStr := strings.TrimSpace(rangeSpec[dash+1:])
+
+	var start, end int64
+
+	switch {
+	case startStr == "" && endStr == "":
+		return 0, 0, fmt.Errorf("invalid range")
+	case startStr == "":
+		// suffix range: last N bytes
+		suffixLen, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || suffixLen <= 0 {
+			return 0, 0, fmt.Errorf("invalid range")
+		}
+		if suffixLen > size {
+			suffixLen = size
+		}
+		start = size - suffixLen
+		end = size - 1
+	case endStr == "":
+		// open-ended range: from start to end of file
+		parsedStart, err := strconv.ParseInt(startStr, 10, 64)
+		if err != nil || parsedStart < 0 {
+			return 0, 0, fmt.Errorf("invalid range")
+		}
+		if parsedStart >= size {
+			return 0, 0, fmt.Errorf("range start beyond size")
+		}
+		start = parsedStart
+		end = size - 1
+	default:
+		parsedStart, err := strconv.ParseInt(startStr, 10, 64)
+		if err != nil || parsedStart < 0 {
+			return 0, 0, fmt.Errorf("invalid range")
+		}
+		parsedEnd, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || parsedEnd < parsedStart {
+			return 0, 0, fmt.Errorf("invalid range")
+		}
+		start = parsedStart
+		end = parsedEnd
+	}
+
+	if start >= size {
+		return 0, 0, fmt.Errorf("range start beyond size")
+	}
+	if end >= size {
+		end = size - 1
+	}
+
+	return start, end, nil
+}
+
+// handleRangeGetWithCache serves range requests using cached 8MB blocks when caching is enabled.
+// Returns true if the request was fully handled (cache hit or range fetch), false to fall back.
+func (h *S3Handler) handleRangeGetWithCache(w http.ResponseWriter, r *http.Request, bucket, key string) bool {
+	const blockSize int64 = 8 * 1024 * 1024
+
+	// Discover object size via HEAD to parse ranges correctly
+	exists, size, lastModified, err := h.backend.HeadObject(r.Context(), bucket, key)
+	if err != nil || !exists || size <= 0 {
+		return false // fall back to full GET path
+	}
+
+	start, end, err := parseSingleRange(r.Header.Get("Range"), size)
+	if err != nil {
+		msg := "invalid range"
+		if errors.Is(err, errMultipleRanges) {
+			msg = "multiple ranges not supported"
+		}
+		h.writeErrorResponse(w, &models.S3Error{Code: models.InvalidRange, Message: msg, Resource: "/" + bucket + "/" + key})
+		return true
+	}
+
+	length := end - start + 1
+
+	startBlock := start / blockSize
+	endBlock := end / blockSize
+	chunkStart := startBlock * blockSize
+	chunkEnd := (endBlock+1)*blockSize - 1
+	if chunkEnd >= size {
+		chunkEnd = size - 1
+	}
+	chunkLen := chunkEnd - chunkStart + 1
+
+	// Attempt cache hit across all required blocks
+	allCached := true
+	var blocks [][]byte
+	var totalLen int64
+	for blk := startBlock; blk <= endBlock; blk++ {
+		bStart := blk * blockSize
+		bEnd := bStart + blockSize - 1
+		if bEnd >= size {
+			bEnd = size - 1
+		}
+		bKey := blockCacheKey(bucket, key, bStart, bEnd)
+		cachedPath, err := h.cacheManager.GetObjectFromCache(bKey)
+		if err != nil || cachedPath == "" {
+			allCached = false
+			break
+		}
+		data, err := os.ReadFile(cachedPath)
+		if err != nil {
+			allCached = false
+			break
+		}
+		blocks = append(blocks, data)
+		totalLen += int64(len(data))
+	}
+
+	if allCached {
+		buf := make([]byte, 0, totalLen)
+		for _, b := range blocks {
+			buf = append(buf, b...)
+		}
+		offset := start - (startBlock * blockSize)
+		payloadEnd := offset + length
+		if payloadEnd > int64(len(buf)) {
+			payloadEnd = int64(len(buf))
+		}
+		payload := buf[offset:payloadEnd]
+		writeRangeResponse(w, payload, start, start+int64(len(payload))-1, size, lastModified)
+		h.stats.RecordGetObject(true)
+		if h.telMgr != nil {
+			h.telMgr.RecordS3Request(r.Context(), "GetObject", true, "")
+		}
+		go h.prefetchBlocks(r.Context(), bucket, key, size, blockSize, endBlock+1, 3)
+		return true
+	}
+
+	// Cache miss: fetch combined chunk covering all blocks in the range
+	objInfo, err := h.backend.GetObjectRange(r.Context(), bucket, key, chunkStart, chunkLen)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = objInfo.Body.Close() }()
+
+	data, err := io.ReadAll(objInfo.Body)
+	if err != nil {
+		return false
+	}
+
+	// Cache each block from the combined buffer
+	bufOffset := int64(0)
+	for blk := startBlock; blk <= endBlock; blk++ {
+		bStart := blk * blockSize
+		bEnd := bStart + blockSize - 1
+		if bEnd >= size {
+			bEnd = size - 1
+		}
+		bLen := bEnd - bStart + 1
+		bData := data[bufOffset : bufOffset+bLen]
+		bKey := blockCacheKey(bucket, key, bStart, bEnd)
+		copyBuf := append([]byte(nil), bData...)
+		if err := h.cacheManager.CacheObject(bKey, copyBuf); err != nil {
+			h.logger.Warn("failed to cache range block", zap.Error(err), zap.String("cache_key", bKey))
+		}
+		bufOffset += bLen
+	}
+
+	offset := start - chunkStart
+	payloadEnd := offset + length
+	if payloadEnd > int64(len(data)) {
+		payloadEnd = int64(len(data))
+	}
+	payload := data[offset:payloadEnd]
+	writeRangeResponse(w, payload, start, start+int64(len(payload))-1, size, lastModified)
+	h.stats.RecordGetObject(true)
+	if h.telMgr != nil {
+		h.telMgr.RecordS3Request(r.Context(), "GetObject", true, "")
+	}
+	go h.prefetchBlocks(r.Context(), bucket, key, size, blockSize, endBlock+1, 3)
+	return true
+}
+
+func writeRangeResponse(w http.ResponseWriter, payload []byte, start, end, totalSize int64, lastModified time.Time) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("ETag", "\"0\"")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, totalSize))
+	if !lastModified.IsZero() {
+		w.Header().Set("Last-Modified", lastModified.UTC().Format(http.TimeFormat))
+	}
+	w.WriteHeader(http.StatusPartialContent)
+	_, _ = w.Write(payload)
+}
+
+func blockCacheKey(bucket, key string, blockStart, blockEnd int64) string {
+	return fmt.Sprintf("%s@%d-%d", generateCacheKey(bucket, key), blockStart, blockEnd)
+}
+
+// prefetchBlocks fetches up to `count` subsequent blocks (starting at startBlock)
+// and stores them in cache if missing. Best-effort: exits on any backend/cache error.
+func (h *S3Handler) prefetchBlocks(ctx context.Context, bucket, key string, totalSize, blockSize int64, startBlock, count int64) {
+	if h.cacheManager == nil {
+		return
+	}
+	for i := int64(0); i < count; i++ {
+		blk := startBlock + i
+		blockStart := blk * blockSize
+		if blockStart >= totalSize {
+			return
+		}
+		blockEnd := blockStart + blockSize - 1
+		if blockEnd >= totalSize {
+			blockEnd = totalSize - 1
+		}
+		bKey := blockCacheKey(bucket, key, blockStart, blockEnd)
+		if cachedPath, err := h.cacheManager.GetObjectFromCache(bKey); err == nil && cachedPath != "" {
+			if _, statErr := os.Stat(cachedPath); statErr == nil {
+				continue
+			}
+		}
+
+		objInfo, err := h.backend.GetObjectRange(ctx, bucket, key, blockStart, blockEnd-blockStart+1)
+		if err != nil {
+			return
+		}
+		data, err := io.ReadAll(objInfo.Body)
+		_ = objInfo.Body.Close()
+		if err != nil {
+			return
+		}
+		if err := h.cacheManager.CacheObject(bKey, data); err != nil {
+			return
+		}
 	}
 }
 

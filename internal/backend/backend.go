@@ -52,6 +52,10 @@ type StorageBackend interface {
 	PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error
 	CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error
 	GetObject(ctx context.Context, bucketName, objectKey string) (ObjectInfo, error)
+	// GetObjectRange returns a byte range [offset, offset+length-1] for the object.
+	// length must be >0. Implementations should clamp to object size and return the
+	// available data if the range exceeds the end of the object.
+	GetObjectRange(ctx context.Context, bucketName, objectKey string, offset, length int64) (ObjectInfo, error)
 	DeleteObject(ctx context.Context, bucketName, objectKey string) error
 	// HeadObject returns whether the object exists. When exists is true,
 	// size contains the object size in bytes and lastModified contains the

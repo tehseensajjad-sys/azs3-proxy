@@ -28,6 +28,9 @@ const (
 	// InvalidArgument is returned when an argument is invalid
 	InvalidArgument S3ErrorCode = "InvalidArgument"
 
+	// InvalidRange is returned when a requested byte range is invalid
+	InvalidRange S3ErrorCode = "InvalidRange"
+
 	// InternalError is returned for unexpected server errors
 	InternalError S3ErrorCode = "InternalError"
 
@@ -38,12 +41,13 @@ const (
 // ErrorCodeToHTTPStatus maps S3 error codes to appropriate HTTP status codes.
 // This ensures S3 error codes are properly translated to HTTP responses.
 var ErrorCodeToHTTPStatus = map[S3ErrorCode]int{
-	NoSuchKey:           http.StatusNotFound,            // 404
-	NoSuchBucket:        http.StatusNotFound,            // 404
-	BucketAlreadyExists: http.StatusConflict,            // 409
-	AccessDenied:        http.StatusForbidden,           // 403
-	InvalidBucketName:   http.StatusBadRequest,          // 400
-	InvalidArgument:     http.StatusBadRequest,          // 400
+	NoSuchKey:           http.StatusNotFound,   // 404
+	NoSuchBucket:        http.StatusNotFound,   // 404
+	BucketAlreadyExists: http.StatusConflict,   // 409
+	AccessDenied:        http.StatusForbidden,  // 403
+	InvalidBucketName:   http.StatusBadRequest, // 400
+	InvalidArgument:     http.StatusBadRequest, // 400
+	InvalidRange:        http.StatusRequestedRangeNotSatisfiable,
 	InternalError:       http.StatusInternalServerError, // 500
 	MalformedXML:        http.StatusBadRequest,          // 400
 }

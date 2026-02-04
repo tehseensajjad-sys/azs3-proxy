@@ -47,6 +47,75 @@ func TestSetTelemetryManagerAndWriteErrorResponse(t *testing.T) {
 	}
 }
 
+func TestParseSingleRange(t *testing.T) {
+	tests := []struct {
+		name           string
+		header         string
+		size           int64
+		wantStart      int64
+		wantEnd        int64
+		expectErr      bool
+		expectMultiErr bool
+	}{
+		{
+			name:      "bounded range",
+			header:    "bytes=0-9",
+			size:      100,
+			wantStart: 0,
+			wantEnd:   9,
+		},
+		{
+			name:      "suffix range",
+			header:    "bytes=-10",
+			size:      50,
+			wantStart: 40,
+			wantEnd:   49,
+		},
+		{
+			name:      "open ended",
+			header:    "bytes=5-",
+			size:      10,
+			wantStart: 5,
+			wantEnd:   9,
+		},
+		{
+			name:           "multiple ranges",
+			header:         "bytes=0-1,2-3",
+			size:           10,
+			expectErr:      true,
+			expectMultiErr: true,
+		},
+		{
+			name:      "invalid unit",
+			header:    "items=0-1",
+			size:      10,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, end, err := parseSingleRange(tt.header, tt.size)
+			if tt.expectErr {
+				if err == nil {
+					t.Fatalf("expected error")
+				}
+				if tt.expectMultiErr && !errors.Is(err, errMultipleRanges) {
+					t.Fatalf("expected multiple ranges error, got %v", err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if start != tt.wantStart || end != tt.wantEnd {
+				t.Fatalf("unexpected range: start=%d end=%d", start, end)
+			}
+		})
+	}
+}
+
 // MockBackend is a simple mock implementation of StorageBackend for testing
 type MockBackend struct {
 	ListBucketsFunc             func(ctx context.Context) ([]string, error)
@@ -55,6 +124,7 @@ type MockBackend struct {
 	PutObjectFunc               func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error
 	CopyObjectFunc              func(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error
 	GetObjectFunc               func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error)
+	GetObjectRangeFunc          func(ctx context.Context, bucketName, objectKey string, offset, length int64) (backend.ObjectInfo, error)
 	DeleteObjectFunc            func(ctx context.Context, bucketName, objectKey string) error
 	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error)
 	ListObjectsFunc             func(ctx context.Context, bucketName, prefix string) ([]string, error)
@@ -127,7 +197,37 @@ func (m *MockBackend) GetObject(ctx context.Context, bucketName, objectKey strin
 	if m.GetObjectFunc != nil {
 		return m.GetObjectFunc(ctx, bucketName, objectKey)
 	}
-	return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader([]byte("test data"))), LastModified: time.Now()}, nil
+	return backend.ObjectInfo{Body: io.NopCloser(strings.NewReader("")), Size: 0, LastModified: time.Now()}, nil
+}
+
+func (m *MockBackend) GetObjectRange(ctx context.Context, bucketName, objectKey string, offset, length int64) (backend.ObjectInfo, error) {
+	if m.GetObjectRangeFunc != nil {
+		return m.GetObjectRangeFunc(ctx, bucketName, objectKey, offset, length)
+	}
+	if m.GetObjectFunc != nil {
+		obj, err := m.GetObjectFunc(ctx, bucketName, objectKey)
+		if err != nil {
+			return obj, err
+		}
+		data, err := io.ReadAll(obj.Body)
+		_ = obj.Body.Close()
+		if err != nil {
+			return backend.ObjectInfo{}, err
+		}
+		if offset < 0 {
+			offset = 0
+		}
+		if offset > int64(len(data)) {
+			return backend.ObjectInfo{}, errors.New("range start beyond size")
+		}
+		if length <= 0 || offset+length > int64(len(data)) {
+			length = int64(len(data)) - offset
+		}
+		end := offset + length
+		slice := data[offset:end]
+		return backend.ObjectInfo{Body: io.NopCloser(bytes.NewReader(slice)), Size: int64(len(data)), LastModified: obj.LastModified}, nil
+	}
+	return backend.ObjectInfo{Body: io.NopCloser(strings.NewReader("")), Size: 0, LastModified: time.Now()}, nil
 }
 
 func (m *MockBackend) DeleteObject(ctx context.Context, bucketName, objectKey string) error {
