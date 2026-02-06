@@ -72,13 +72,27 @@ func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger, t
 	switch cfg.AzureBackendType {
 	case "blob":
 		logger.Info("initializing Azure Blob Storage backend")
-		backendImpl, err = azureblob.NewAzureBlobBackendWithAuth(cfg.AzureAuth, logger, telMgr)
+		backendImpl, err = azureblob.NewAzureBlobBackendWithAuth(azureblob.Options{
+			AuthConfig:      cfg.AzureAuth,
+			CapMbpsRead:     cfg.CapMbpsRead,
+			CapMbpsWrite:    cfg.CapMbpsWrite,
+			CapMbpsCombined: cfg.CapMbpsCombined,
+			Logger:          logger,
+			Telemetry:       telMgr,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize azure blob backend: %w", err)
 		}
 	case "file":
 		logger.Info("initializing Azure Files backend")
-		backendImpl, err = azurefile.NewAzureFileBackendWithAuth(cfg.AzureAuth, logger, telMgr)
+		backendImpl, err = azurefile.NewAzureFileBackendWithAuth(azurefile.Options{
+			AuthConfig:      cfg.AzureAuth,
+			CapMbpsRead:     cfg.CapMbpsRead,
+			CapMbpsWrite:    cfg.CapMbpsWrite,
+			CapMbpsCombined: cfg.CapMbpsCombined,
+			Logger:          logger,
+			Telemetry:       telMgr,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize azure file backend: %w", err)
 		}

@@ -33,6 +33,15 @@ var (
 	defaultLogFile string
 )
 
+type cliOverrides struct {
+	listenAddr string
+	logFile    string
+	logLevel   string
+	capCombo   string
+	capRead    string
+	capWrite   string
+}
+
 func init() {
 	// Determine binary name for dynamic file naming
 	exe, err := os.Executable()
@@ -43,6 +52,41 @@ func init() {
 
 	pidFileName = baseName + ".pid"
 	defaultLogFile = baseName + ".log"
+}
+
+func applyCLIOverrides(cfg *config.Config, o cliOverrides) error {
+	if o.listenAddr != "" {
+		cfg.ListenAddr = o.listenAddr
+	}
+	if o.logFile != "" {
+		cfg.LogFile = o.logFile
+	}
+	if o.logLevel != "" {
+		cfg.LogLevel = o.logLevel
+	}
+	if o.capCombo != "" {
+		v, err := strconv.ParseFloat(o.capCombo, 64)
+		if err != nil {
+			return fmt.Errorf("invalid value for --cap-mbps: %w", err)
+		}
+		cfg.CapMbpsCombined = v
+	}
+	if o.capRead != "" {
+		v, err := strconv.ParseFloat(o.capRead, 64)
+		if err != nil {
+			return fmt.Errorf("invalid value for --cap-mbps-read: %w", err)
+		}
+		cfg.CapMbpsRead = v
+	}
+	if o.capWrite != "" {
+		v, err := strconv.ParseFloat(o.capWrite, 64)
+		if err != nil {
+			return fmt.Errorf("invalid value for --cap-mbps-write: %w", err)
+		}
+		cfg.CapMbpsWrite = v
+	}
+
+	return nil
 }
 
 // main is the entry point for the S3 to Azure Blob Storage proxy application.
@@ -57,6 +101,9 @@ func main() {
 	listenAddr := flag.String("addr", "", "Address and port to listen on (e.g., :8080 or 127.0.0.1:9000)")
 	logFileFlag := flag.String("log-file", "", "Path to log file")
 	logLevelFlag := flag.String("log-level", "", "Log level (debug, info, warn, error, crit)")
+	capCombinedFlag := flag.String("cap-mbps", "", "Limit aggregate Azure bandwidth (Mbps). Overrides CAP_MBPS env when set.")
+	capReadFlag := flag.String("cap-mbps-read", "", "Limit Azure download bandwidth (Mbps). Overrides CAP_MBPS_READ env when set.")
+	capWriteFlag := flag.String("cap-mbps-write", "", "Limit Azure upload bandwidth (Mbps). Overrides CAP_MBPS_WRITE env when set.")
 	foreground := flag.Bool("foreground", false, "Run in foreground")
 	stop := flag.Bool("stop", false, "Stop the running daemon")
 	versionFlag := flag.Bool("version", false, "Print version and exit")
@@ -73,6 +120,36 @@ func main() {
 		return
 	}
 
+	// Load configuration from environment variables first.
+	// This must happen before logging setup to get logging configuration.
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Override configuration with CLI flags if provided (CLI takes precedence over env/config)
+	if err := applyCLIOverrides(cfg, cliOverrides{
+		listenAddr: *listenAddr,
+		logFile:    *logFileFlag,
+		logLevel:   *logLevelFlag,
+		capCombo:   *capCombinedFlag,
+		capRead:    *capReadFlag,
+		capWrite:   *capWriteFlag,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to apply CLI overrides: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Re-validate after applying CLI overrides to catch invalid combinations such as
+	// mixing combined and per-direction bandwidth caps.
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "invalid configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	// For daemon mode, fail fast in the parent before forking so CLI users see
+	// validation errors (e.g., conflicting bandwidth caps) immediately.
 	if !*foreground {
 		startDaemon()
 		return
@@ -80,24 +157,6 @@ func main() {
 
 	// Setup crash handling (core dumps and panic logs)
 	setupCrashHandler()
-
-	// Load configuration from environment variables first.
-	// This must happen before logging setup to get logging configuration.
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
-	}
-
-	// Override configuration with CLI flags if provided
-	if *listenAddr != "" {
-		cfg.ListenAddr = *listenAddr
-	}
-	if *logFileFlag != "" {
-		cfg.LogFile = *logFileFlag
-	}
-	if *logLevelFlag != "" {
-		cfg.LogLevel = *logLevelFlag
-	}
 
 	// Set default log file if not configured
 	if cfg.LogFile == "" {
@@ -162,14 +221,15 @@ func main() {
 		handler = otelhttp.NewHandler(router, "s3-proxy")
 	}
 
-	// Configure the HTTP server with timeouts and handler.
+	// Configure the HTTP server with generous streaming timeouts so large, throttled
+	// transfers do not prematurely fail while still guarding header handling.
 	httpServer := &http.Server{
-		Addr:    cfg.ListenAddr,
-		Handler: handler,
-		// Set read/write timeouts to prevent slow client attacks
+		Addr:              cfg.ListenAddr,
+		Handler:           handler,
 		ReadHeaderTimeout: 30 * time.Second,
-		ReadTimeout:       60 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		ReadTimeout:       10 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       10 * time.Minute,
 	}
 
 	// Start the server in a background goroutine to allow signal handling.

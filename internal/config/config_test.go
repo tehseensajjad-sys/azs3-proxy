@@ -205,6 +205,196 @@ func TestLoadConfigValidation(t *testing.T) {
 	}
 }
 
+func TestBandwidthCapExclusivity(t *testing.T) {
+	baseSetup := func() {
+		_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+		_ = os.Setenv("AZURE_STORAGE_KEY", "testkey")
+		_ = os.Setenv("S3_ACCESS_KEY", "testaccess")
+		_ = os.Setenv("S3_SECRET_KEY", "testsecret")
+	}
+	baseCleanup := func() {
+		_ = os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+		_ = os.Unsetenv("AZURE_STORAGE_KEY")
+		_ = os.Unsetenv("S3_ACCESS_KEY")
+		_ = os.Unsetenv("S3_SECRET_KEY")
+		_ = os.Unsetenv("CAP_MBPS")
+		_ = os.Unsetenv("CAP_MBPS_READ")
+		_ = os.Unsetenv("CAP_MBPS_WRITE")
+	}
+
+	tests := []struct {
+		name      string
+		setup     func()
+		expectErr bool
+	}{
+		{
+			name: "combined cap alone allowed",
+			setup: func() {
+				baseSetup()
+				_ = os.Setenv("CAP_MBPS", "10")
+			},
+			expectErr: false,
+		},
+		{
+			name: "per-direction caps allowed",
+			setup: func() {
+				baseSetup()
+				_ = os.Setenv("CAP_MBPS_READ", "5")
+				_ = os.Setenv("CAP_MBPS_WRITE", "6")
+			},
+			expectErr: false,
+		},
+		{
+			name: "combined with read should fail",
+			setup: func() {
+				baseSetup()
+				_ = os.Setenv("CAP_MBPS", "10")
+				_ = os.Setenv("CAP_MBPS_READ", "5")
+			},
+			expectErr: true,
+		},
+		{
+			name: "combined with write should fail",
+			setup: func() {
+				baseSetup()
+				_ = os.Setenv("CAP_MBPS", "10")
+				_ = os.Setenv("CAP_MBPS_WRITE", "5")
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setup != nil {
+				ttSetup := tt.setup
+				ttSetup()
+			}
+			defer baseCleanup()
+
+			_, err := LoadConfig()
+			if tt.expectErr && err == nil {
+				t.Fatalf("expected error but got none")
+			}
+			if !tt.expectErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestBandwidthCapCombinations(t *testing.T) {
+	baseSetup := func() {
+		_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "testaccount")
+		_ = os.Setenv("AZURE_STORAGE_KEY", "testkey")
+		_ = os.Setenv("S3_ACCESS_KEY", "testaccess")
+		_ = os.Setenv("S3_SECRET_KEY", "testsecret")
+	}
+	baseCleanup := func() {
+		_ = os.Unsetenv("AZURE_STORAGE_ACCOUNT")
+		_ = os.Unsetenv("AZURE_STORAGE_KEY")
+		_ = os.Unsetenv("S3_ACCESS_KEY")
+		_ = os.Unsetenv("S3_SECRET_KEY")
+		_ = os.Unsetenv("CAP_MBPS")
+		_ = os.Unsetenv("CAP_MBPS_READ")
+		_ = os.Unsetenv("CAP_MBPS_WRITE")
+	}
+
+	tests := []struct {
+		name             string
+		cap, read, write string
+		expectErr        bool
+		expectCombined   float64
+		expectRead       float64
+		expectWrite      float64
+	}{
+		{
+			name:           "combined only",
+			cap:            "12",
+			expectCombined: 12,
+			read:           "",
+			write:          "",
+		},
+		{
+			name:        "read only",
+			read:        "5",
+			expectRead:  5,
+			expectWrite: 0,
+		},
+		{
+			name:           "write only",
+			write:          "7",
+			expectWrite:    7,
+			expectRead:     0,
+			expectCombined: 0,
+		},
+		{
+			name:           "read and write allowed",
+			read:           "6",
+			write:          "8",
+			expectRead:     6,
+			expectWrite:    8,
+			expectCombined: 0,
+		},
+		{
+			name:      "combined with read fails",
+			cap:       "10",
+			read:      "5",
+			expectErr: true,
+		},
+		{
+			name:      "combined with write fails",
+			cap:       "10",
+			write:     "5",
+			expectErr: true,
+		},
+		{
+			name:      "combined with both fails",
+			cap:       "10",
+			read:      "5",
+			write:     "6",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			baseSetup()
+			defer baseCleanup()
+			if tt.cap != "" {
+				_ = os.Setenv("CAP_MBPS", tt.cap)
+			}
+			if tt.read != "" {
+				_ = os.Setenv("CAP_MBPS_READ", tt.read)
+			}
+			if tt.write != "" {
+				_ = os.Setenv("CAP_MBPS_WRITE", tt.write)
+			}
+
+			cfg, err := LoadConfig()
+			if tt.expectErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if cfg.CapMbpsCombined != tt.expectCombined {
+				t.Fatalf("combined cap: expected %v, got %v", tt.expectCombined, cfg.CapMbpsCombined)
+			}
+			if cfg.CapMbpsRead != tt.expectRead {
+				t.Fatalf("read cap: expected %v, got %v", tt.expectRead, cfg.CapMbpsRead)
+			}
+			if cfg.CapMbpsWrite != tt.expectWrite {
+				t.Fatalf("write cap: expected %v, got %v", tt.expectWrite, cfg.CapMbpsWrite)
+			}
+		})
+	}
+}
+
 func TestFileBackendDefaultsToFileEndpoint(t *testing.T) {
 	_ = os.Setenv("AZURE_STORAGE_ACCOUNT", "filesacct")
 	_ = os.Setenv("AZURE_STORAGE_KEY", "testkey")

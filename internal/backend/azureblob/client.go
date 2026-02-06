@@ -36,6 +36,17 @@ type AzureBlobBackend struct {
 	versionedBucketsMutex sync.RWMutex                        // Thread-safe access to versioning state
 	logger                *zap.Logger                         // Logger for backend operations
 	telMgr                *telemetry.Manager                  // Telemetry manager for metrics
+	limiter               *backendcommon.BandwidthLimiter     // Optional bandwidth limiter (Azure-facing only)
+}
+
+// Options configures Azure Blob backend construction.
+type Options struct {
+	AuthConfig      *config.AzureAuthConfig
+	CapMbpsRead     float64
+	CapMbpsWrite    float64
+	CapMbpsCombined float64
+	Logger          *zap.Logger
+	Telemetry       *telemetry.Manager
 }
 
 // MultipartUploadMetadata stores metadata about an active multipart upload.
@@ -80,60 +91,93 @@ var (
 	}
 )
 
+func (ab *AzureBlobBackend) wrapDownload(rc io.ReadCloser) io.ReadCloser {
+	if rc == nil {
+		return nil
+	}
+	if ab.limiter == nil {
+		return rc
+	}
+	return ab.limiter.WrapDownload(rc)
+}
+
+func (ab *AzureBlobBackend) wrapUpload(r io.Reader) io.Reader {
+	if r == nil {
+		return nil
+	}
+	if ab.limiter == nil {
+		return r
+	}
+	return ab.limiter.WrapUpload(r)
+}
+
+func (ab *AzureBlobBackend) wrapUploadSeek(r io.ReadSeekCloser) io.ReadSeekCloser {
+	if r == nil {
+		return nil
+	}
+	if ab.limiter == nil {
+		return r
+	}
+	return ab.limiter.WrapUploadSeek(r)
+}
+
 // NewAzureBlobBackendWithAuth creates an Azure Blob backend using flexible authentication.
 // Supports six authentication methods: account key, SAS, MSI, SPN, federated token, and Azure CLI.
 // Logs authentication method and storage account for audit/debugging purposes.
-func NewAzureBlobBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap.Logger, telMgr *telemetry.Manager) (*AzureBlobBackend, error) {
+func NewAzureBlobBackendWithAuth(opts Options) (*AzureBlobBackend, error) {
+	if opts.AuthConfig == nil {
+		return nil, fmt.Errorf("auth config is required")
+	}
+	if opts.Logger == nil {
+		opts.Logger = zap.NewNop()
+	}
+
 	ctx := context.Background()
 
 	// Log initialization with auth method for debugging and audit
-	logger.Info("initializing Azure Blob backend",
-		zap.String("storage_account", authConfig.StorageAccountName),
-		zap.String("auth_mode", authConfig.Mode.String()))
+	opts.Logger.Info("initializing Azure Blob backend",
+		zap.String("storage_account", opts.AuthConfig.StorageAccountName),
+		zap.String("auth_mode", opts.AuthConfig.Mode.String()))
 
 	// Check cache first
-	cacheKey := backendcommon.BuildCacheKey(authConfig)
+	cacheKey := backendcommon.BuildCacheKey(opts.AuthConfig)
 	clientCacheMutex.RLock()
 	client, ok := clientCache[cacheKey]
 	clientCacheMutex.RUnlock()
 
 	if ok {
-		logger.Info("using cached azure blob client",
-			zap.String("storage_account", authConfig.StorageAccountName),
-			zap.String("auth_mode", authConfig.Mode.String()))
+		opts.Logger.Info("using cached azure blob client",
+			zap.String("storage_account", opts.AuthConfig.StorageAccountName),
+			zap.String("auth_mode", opts.AuthConfig.Mode.String()))
 	} else {
 		var err error
-		// Check if telemetry is enabled
-		telemetryEnabled := telMgr != nil && telMgr.IsEnabled()
+		telemetryEnabled := opts.Telemetry != nil && opts.Telemetry.IsEnabled()
 
-		// Build Azure client using the appropriate authentication credential
-		client, err = BuildClientFromCredential(ctx, authConfig, logger, telemetryEnabled)
+		client, err = BuildClientFromCredential(ctx, opts.AuthConfig, opts.Logger, telemetryEnabled)
 		if err != nil {
-			logger.Error("failed to build azure blob client",
+			opts.Logger.Error("failed to build azure blob client",
 				zap.Error(err),
-				zap.String("storage_account", authConfig.StorageAccountName),
-				zap.String("auth_mode", authConfig.Mode.String()))
+				zap.String("auth_mode", opts.AuthConfig.Mode.String()))
 
 			return nil, fmt.Errorf("failed to build azure blob client: %w", err)
 		}
 
-		// Update cache
 		clientCacheMutex.Lock()
 		clientCache[cacheKey] = client
 		clientCacheMutex.Unlock()
 	}
 
-	// Log successful initialization
-	logger.Info("Azure Blob backend initialized successfully",
-		zap.String("storage_account", authConfig.StorageAccountName),
-		zap.String("auth_mode", authConfig.Mode.String()))
+	opts.Logger.Info("Azure Blob backend initialized successfully",
+		zap.String("storage_account", opts.AuthConfig.StorageAccountName),
+		zap.String("auth_mode", opts.AuthConfig.Mode.String()))
 
 	return &AzureBlobBackend{
 		client:           client,
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 		versionedBuckets: make(map[string]bool),
-		logger:           logger,
-		telMgr:           telMgr,
+		logger:           opts.Logger,
+		telMgr:           opts.Telemetry,
+		limiter:          backendcommon.NewBandwidthLimiter(opts.CapMbpsRead, opts.CapMbpsWrite, opts.CapMbpsCombined),
 	}, nil
 }
 
@@ -226,7 +270,9 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 		pooledThreshold       = 8 * 1024 * 1024
 	)
 
-	if size > 0 && size <= memoryUploadThreshold {
+	useLimiter := ab.limiter != nil
+
+	if !useLimiter && size > 0 && size <= memoryUploadThreshold {
 		var buf []byte
 		pooled := false
 		if size <= pooledThreshold {
@@ -256,7 +302,11 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 		return nil
 	}
 
-	// Fallback for larger files or unknown size
+	if useLimiter {
+		data = ab.wrapUpload(data)
+	}
+
+	// Fallback for larger files or when limiter is enabled
 	// Tune UploadStream options based on object size
 	concurrency := 16                   // Default for large files to maximize throughput
 	blockSize := int64(8 * 1024 * 1024) // 8MB
@@ -420,14 +470,14 @@ func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey
 	if info.Size > concurrentDownloadThreshold {
 		// Use concurrent reader
 		// Using 16 concurrent streams with 8MB chunks
-		info.Body = newConcurrentReader(ctx, blobClient, info.Size, 16, 8*1024*1024)
+		info.Body = ab.wrapDownload(newConcurrentReader(ctx, blobClient, info.Size, 16, 8*1024*1024))
 	} else {
 		options := &azblob.DownloadStreamOptions{}
 		resp, err := blobClient.DownloadStream(ctx, options)
 		if err != nil {
 			return info, fmt.Errorf("download blob failed: %w", err)
 		}
-		info.Body = resp.Body
+		info.Body = ab.wrapDownload(resp.Body)
 	}
 
 	return info, nil
@@ -478,7 +528,7 @@ func (ab *AzureBlobBackend) GetObjectRange(ctx context.Context, bucketName, obje
 		return info, fmt.Errorf("download blob range failed: %w", err)
 	}
 
-	info.Body = resp.Body
+	info.Body = ab.wrapDownload(resp.Body)
 	if props.LastModified != nil {
 		info.LastModified = props.LastModified.UTC()
 	} else {
@@ -563,6 +613,7 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 
 	// Stage the block in Azure using the in-memory buffer
 	// We do NOT hold the global lock here to allow concurrent uploads
+	reader = ab.wrapUploadSeek(reader)
 	_, err = upload.BlockBlobClient.StageBlock(ctx, blockID, reader, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to stage block: %w", err)
@@ -781,7 +832,7 @@ func (ab *AzureBlobBackend) GetObjectVersion(ctx context.Context, bucketName, ob
 		return info, fmt.Errorf("failed to download object version: %w", err)
 	}
 
-	info.Body = resp.Body
+	info.Body = ab.wrapDownload(resp.Body)
 	if props.LastModified != nil {
 		info.LastModified = props.LastModified.UTC()
 	} else {

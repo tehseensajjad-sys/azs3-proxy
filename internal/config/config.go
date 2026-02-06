@@ -38,6 +38,11 @@ type Config struct {
 	CachePath    string // Directory path for cached objects
 	CacheMaxSize int64  // Maximum cache size in bytes (e.g., 1GB = 1073741824)
 	CacheTTL     int    // Time-to-live for cache entries in seconds (default: 3600 = 1 hour)
+
+	// Bandwidth caps toward Azure (megabits per second). 0 disables the cap.
+	CapMbpsRead     float64 // Cap download bandwidth from Azure
+	CapMbpsWrite    float64 // Cap upload bandwidth to Azure
+	CapMbpsCombined float64 // Cap combined bandwidth (applies to both directions)
 }
 
 // LoadConfig loads all proxy configuration from environment variables.
@@ -73,6 +78,10 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// Build configuration from environment variables with defaults
+	capRead := parseFloatEnv("CAP_MBPS_READ")
+	capWrite := parseFloatEnv("CAP_MBPS_WRITE")
+	capCombined := parseFloatEnv("CAP_MBPS")
+
 	cfg := &Config{
 		ListenAddr:        getEnv("LISTEN_ADDR", ":8080"),
 		EnableTLS:         getEnv("ENABLE_TLS", "false") == "true",
@@ -89,6 +98,9 @@ func LoadConfig() (*Config, error) {
 		CachePath:         getEnv("CACHE_PATH", "/tmp/azs3-proxy-cache"),
 		CacheMaxSize:      cacheMaxSize,
 		CacheTTL:          cacheTTL,
+		CapMbpsRead:       capRead,
+		CapMbpsWrite:      capWrite,
+		CapMbpsCombined:   capCombined,
 	}
 
 	// Validate all required configuration is present and valid
@@ -149,6 +161,15 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.CapMbpsRead < 0 || c.CapMbpsWrite < 0 || c.CapMbpsCombined < 0 {
+		return fmt.Errorf("CAP_MBPS* values must be non-negative")
+	}
+
+	// Combined cap and per-direction caps are mutually exclusive to avoid double throttling.
+	if c.CapMbpsCombined > 0 && (c.CapMbpsRead > 0 || c.CapMbpsWrite > 0) {
+		return fmt.Errorf("CAP_MBPS cannot be used together with CAP_MBPS_READ or CAP_MBPS_WRITE")
+	}
+
 	return nil
 }
 
@@ -169,4 +190,14 @@ func getEnvRequired(key string) string {
 
 	}
 	return ""
+}
+
+// parseFloatEnv parses an environment variable as float64. Returns 0 if unset or invalid.
+func parseFloatEnv(key string) float64 {
+	if value, exists := os.LookupEnv(key); exists {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
+		}
+	}
+	return 0
 }

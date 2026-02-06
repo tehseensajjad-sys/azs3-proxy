@@ -51,6 +51,17 @@ type AzureFileBackend struct {
 	versionedSharesMutex  sync.RWMutex                        // Thread-safe access to versioning state
 	logger                *zap.Logger                         // Logger for backend operations
 	telMgr                *telemetry.Manager                  // Telemetry manager for metrics
+	limiter               *backendcommon.BandwidthLimiter     // Optional bandwidth limiter (Azure-facing only)
+}
+
+// Options configures Azure Files backend construction.
+type Options struct {
+	AuthConfig      *config.AzureAuthConfig
+	CapMbpsRead     float64
+	CapMbpsWrite    float64
+	CapMbpsCombined float64
+	Logger          *zap.Logger
+	Telemetry       *telemetry.Manager
 }
 
 // MultipartUploadMetadata stores metadata about an active multipart upload.
@@ -76,58 +87,81 @@ var (
 	clientCacheMutex sync.RWMutex
 )
 
+func (af *AzureFileBackend) wrapDownload(rc io.ReadCloser) io.ReadCloser {
+	if rc == nil {
+		return nil
+	}
+	if af.limiter == nil {
+		return rc
+	}
+	return af.limiter.WrapDownload(rc)
+}
+
+func (af *AzureFileBackend) wrapUpload(r io.Reader) io.Reader {
+	if r == nil {
+		return nil
+	}
+	if af.limiter == nil {
+		return r
+	}
+	return af.limiter.WrapUpload(r)
+}
+
 // NewAzureFileBackendWithAuth creates an Azure Files backend using flexible authentication.
 // Supports account key and SAS token authentication methods.
 // Logs authentication method and storage account for audit/debugging purposes.
-func NewAzureFileBackendWithAuth(authConfig *config.AzureAuthConfig, logger *zap.Logger, telMgr *telemetry.Manager) (*AzureFileBackend, error) {
+func NewAzureFileBackendWithAuth(opts Options) (*AzureFileBackend, error) {
+	if opts.AuthConfig == nil {
+		return nil, fmt.Errorf("auth config is required")
+	}
+	if opts.Logger == nil {
+		opts.Logger = zap.NewNop()
+	}
+
 	ctx := context.Background()
 
-	// Log initialization with auth method for debugging and audit
-	logger.Info("initializing Azure Files backend",
-		zap.String("storage_account", authConfig.StorageAccountName),
-		zap.String("auth_mode", authConfig.Mode.String()))
+	opts.Logger.Info("initializing Azure Files backend",
+		zap.String("storage_account", opts.AuthConfig.StorageAccountName),
+		zap.String("auth_mode", opts.AuthConfig.Mode.String()))
 
-	// Check cache first
-	cacheKey := backendcommon.BuildCacheKey(authConfig)
+	cacheKey := backendcommon.BuildCacheKey(opts.AuthConfig)
 	clientCacheMutex.RLock()
 	client, ok := clientCache[cacheKey]
 	clientCacheMutex.RUnlock()
 
 	if ok {
-		logger.Info("using cached azure files client",
-			zap.String("storage_account", authConfig.StorageAccountName),
-			zap.String("auth_mode", authConfig.Mode.String()))
+		opts.Logger.Info("using cached azure files client",
+			zap.String("storage_account", opts.AuthConfig.StorageAccountName),
+			zap.String("auth_mode", opts.AuthConfig.Mode.String()))
 	} else {
 		var err error
-		telemetryEnabled := telMgr != nil && telMgr.IsEnabled()
-		// Build Azure client using the appropriate authentication credential
-		client, err = BuildServiceClientFromCredential(ctx, authConfig, logger, telemetryEnabled)
+		telemetryEnabled := opts.Telemetry != nil && opts.Telemetry.IsEnabled()
+		client, err = BuildServiceClientFromCredential(ctx, opts.AuthConfig, opts.Logger, telemetryEnabled)
 		if err != nil {
-			logger.Error("failed to build azure files client",
+			opts.Logger.Error("failed to build azure files client",
 				zap.Error(err),
-				zap.String("storage_account", authConfig.StorageAccountName),
-				zap.String("auth_mode", authConfig.Mode.String()))
+				zap.String("storage_account", opts.AuthConfig.StorageAccountName),
+				zap.String("auth_mode", opts.AuthConfig.Mode.String()))
 
 			return nil, fmt.Errorf("failed to build azure files client: %w", err)
 		}
 
-		// Update cache
 		clientCacheMutex.Lock()
 		clientCache[cacheKey] = client
 		clientCacheMutex.Unlock()
 	}
 
-	// Log successful initialization
-	logger.Info("Azure Files backend initialized successfully",
-		zap.String("storage_account", authConfig.StorageAccountName),
-		zap.String("auth_mode", authConfig.Mode.String()))
+	opts.Logger.Info("Azure Files backend initialized successfully",
+		zap.String("storage_account", opts.AuthConfig.StorageAccountName),
+		zap.String("auth_mode", opts.AuthConfig.Mode.String()))
 
 	return &AzureFileBackend{
 		client:           client,
 		multipartUploads: make(map[string]*MultipartUploadMetadata),
 		versionedShares:  make(map[string]bool),
-		logger:           logger,
-		telMgr:           telMgr,
+		logger:           opts.Logger,
+		telMgr:           opts.Telemetry,
+		limiter:          backendcommon.NewBandwidthLimiter(opts.CapMbpsRead, opts.CapMbpsWrite, opts.CapMbpsCombined),
 	}, nil
 }
 
@@ -265,9 +299,11 @@ func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey
 		return fmt.Errorf("failed to create file: %w", err)
 	}
 
+	useLimiter := af.limiter != nil
+
 	// Upload data to the file
-	// For small files, read into memory and use UploadBuffer
-	if size > 0 && size <= memoryUploadThreshold {
+	// For small files, read into memory and use UploadBuffer unless limiter is enabled
+	if !useLimiter && size > 0 && size <= memoryUploadThreshold {
 		// Read entire body into memory
 		buf := make([]byte, size)
 		_, err := io.ReadFull(data, buf)
@@ -283,7 +319,11 @@ func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey
 		return nil
 	}
 
-	// For larger files, use UploadStream
+	if useLimiter {
+		data = af.wrapUpload(data)
+	}
+
+	// For larger files or when limiter is enabled, use UploadStream
 	err = fileClient.UploadStream(ctx, data, nil)
 	if err != nil {
 		return fmt.Errorf("upload stream failed: %w", err)
@@ -492,7 +532,7 @@ func (af *AzureFileBackend) GetObject(ctx context.Context, bucketName, objectKey
 	if err != nil {
 		return info, fmt.Errorf("download file failed: %w", err)
 	}
-	info.Body = resp.Body
+	info.Body = af.wrapDownload(resp.Body)
 
 	return info, nil
 }
@@ -543,7 +583,7 @@ func (af *AzureFileBackend) GetObjectRange(ctx context.Context, bucketName, obje
 		return info, fmt.Errorf("download range failed: %w", err)
 	}
 
-	info.Body = resp.Body
+	info.Body = af.wrapDownload(resp.Body)
 	return info, nil
 }
 
