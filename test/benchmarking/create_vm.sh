@@ -29,7 +29,9 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CLOUD_INIT="$SCRIPT_DIR/cloud-init.yaml"
 LOCAL_ENV_FILE="$PROJECT_ROOT/.env"
 
-if [ -n "$EXISTING_VM_NAME" ]; then
+# If a VM name is provided and is NOT the sentinel value "x", reuse it.
+# If the name is "x" (or empty), force creation of a new VM.
+if [ -n "$EXISTING_VM_NAME" ] && [ "$EXISTING_VM_NAME" != "x" ]; then
     VM_NAME="$EXISTING_VM_NAME"
     echo "Using existing VM: $VM_NAME"
     SKIP_CREATION=true

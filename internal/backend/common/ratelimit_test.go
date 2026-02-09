@@ -93,3 +93,30 @@ func TestBandwidthLimiterEnforcesRate(t *testing.T) {
 		t.Fatalf("expected upload to be throttled, finished in %v", elapsed)
 	}
 }
+
+func TestBandwidthLimiterUpdateCaps(t *testing.T) {
+	// Start slow, then bump the cap and ensure throughput improves.
+	buf := bytes.Repeat([]byte{'a'}, 128*1024)
+	limiter := NewBandwidthLimiter(0.5, 0, 0)
+
+	slowStart := time.Now()
+	if _, err := io.Copy(io.Discard, limiter.WrapDownload(io.NopCloser(bytes.NewReader(buf)))); err != nil {
+		t.Fatalf("slow copy failed: %v", err)
+	}
+	slowElapsed := time.Since(slowStart)
+
+	limiter.UpdateCaps(50, 0, 0)
+
+	fastStart := time.Now()
+	if _, err := io.Copy(io.Discard, limiter.WrapDownload(io.NopCloser(bytes.NewReader(buf)))); err != nil {
+		t.Fatalf("fast copy failed: %v", err)
+	}
+	fastElapsed := time.Since(fastStart)
+
+	if slowElapsed < 500*time.Millisecond {
+		t.Fatalf("expected initial copy to be throttled, finished in %v", slowElapsed)
+	}
+	if fastElapsed > 400*time.Millisecond {
+		t.Fatalf("expected faster copy after cap update, took %v (was %v)", fastElapsed, slowElapsed)
+	}
+}

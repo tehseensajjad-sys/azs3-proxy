@@ -107,6 +107,22 @@ func (af *AzureFileBackend) wrapUpload(r io.Reader) io.Reader {
 	return af.limiter.WrapUpload(r)
 }
 
+// UpdateCaps adjusts bandwidth caps at runtime. When no limiter exists and
+// any cap is positive, a new limiter is created; non-positive caps disable
+// their respective buckets.
+func (af *AzureFileBackend) UpdateCaps(capReadMbps, capWriteMbps, capCombinedMbps float64) {
+	if af == nil {
+		return
+	}
+
+	if af.limiter == nil {
+		af.limiter = backendcommon.NewBandwidthLimiter(capReadMbps, capWriteMbps, capCombinedMbps)
+		return
+	}
+
+	af.limiter.UpdateCaps(capReadMbps, capWriteMbps, capCombinedMbps)
+}
+
 // NewAzureFileBackendWithAuth creates an Azure Files backend using flexible authentication.
 // Supports account key and SAS token authentication methods.
 // Logs authentication method and storage account for audit/debugging purposes.

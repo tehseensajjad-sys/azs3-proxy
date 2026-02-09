@@ -121,6 +121,22 @@ func (ab *AzureBlobBackend) wrapUploadSeek(r io.ReadSeekCloser) io.ReadSeekClose
 	return ab.limiter.WrapUploadSeek(r)
 }
 
+// UpdateCaps adjusts bandwidth caps at runtime. When no limiter exists and
+// any cap is positive, a new limiter is created; non-positive caps disable
+// their respective buckets.
+func (ab *AzureBlobBackend) UpdateCaps(capReadMbps, capWriteMbps, capCombinedMbps float64) {
+	if ab == nil {
+		return
+	}
+
+	if ab.limiter == nil {
+		ab.limiter = backendcommon.NewBandwidthLimiter(capReadMbps, capWriteMbps, capCombinedMbps)
+		return
+	}
+
+	ab.limiter.UpdateCaps(capReadMbps, capWriteMbps, capCombinedMbps)
+}
+
 // NewAzureBlobBackendWithAuth creates an Azure Blob backend using flexible authentication.
 // Supports six authentication methods: account key, SAS, MSI, SPN, federated token, and Azure CLI.
 // Logs authentication method and storage account for audit/debugging purposes.

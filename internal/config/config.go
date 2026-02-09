@@ -12,6 +12,13 @@ import (
 type Config struct {
 	// HTTP Server configuration
 	ListenAddr string // Address and port to listen on (default: :8080)
+	AdminToken string // Optional shared secret for admin endpoints (e.g., caps update)
+
+	// Adaptive concurrency configuration
+	AdaptiveConcurrencyEnabled  bool // Enable adaptive concurrency limiter
+	AdaptiveConcurrencyMin      int  // Minimum concurrent requests
+	AdaptiveConcurrencyMax      int  // Maximum concurrent requests
+	AdaptiveConcurrencyTargetMs int  // Target latency in milliseconds for adjustments
 
 	// HTTPS/TLS Configuration
 	EnableTLS bool   // Whether to enable HTTPS
@@ -83,24 +90,29 @@ func LoadConfig() (*Config, error) {
 	capCombined := parseFloatEnv("CAP_MBPS")
 
 	cfg := &Config{
-		ListenAddr:        getEnv("LISTEN_ADDR", ":8080"),
-		EnableTLS:         getEnv("ENABLE_TLS", "false") == "true",
-		CertFile:          getEnv("TLS_CERT_FILE", ""),
-		KeyFile:           getEnv("TLS_KEY_FILE", ""),
-		AzureBackendType:  azureBackendType,
-		AzureAuth:         azureAuth,
-		S3AccessKeyID:     getEnvRequired("S3_ACCESS_KEY"),
-		S3SecretAccessKey: getEnvRequired("S3_SECRET_KEY"),
-		LogLevel:          getEnv("LOG_LEVEL", "warn"),
-		LogFile:           getEnv("LOG_FILE", ""),
-		LogMode:           getEnv("LOG_MODE", "console"),
-		CacheEnabled:      getEnv("CACHE_ENABLED", "false") == "true",
-		CachePath:         getEnv("CACHE_PATH", "/tmp/azs3-proxy-cache"),
-		CacheMaxSize:      cacheMaxSize,
-		CacheTTL:          cacheTTL,
-		CapMbpsRead:       capRead,
-		CapMbpsWrite:      capWrite,
-		CapMbpsCombined:   capCombined,
+		ListenAddr:                  getEnv("LISTEN_ADDR", ":8080"),
+		AdminToken:                  getEnv("ADMIN_TOKEN", ""),
+		AdaptiveConcurrencyEnabled:  getEnv("ADAPTIVE_CONCURRENCY_ENABLED", "false") == "true",
+		AdaptiveConcurrencyMin:      parseIntEnv("ADAPTIVE_CONCURRENCY_MIN", 4),
+		AdaptiveConcurrencyMax:      parseIntEnv("ADAPTIVE_CONCURRENCY_MAX", 64),
+		AdaptiveConcurrencyTargetMs: parseIntEnv("ADAPTIVE_CONCURRENCY_TARGET_MS", 200),
+		EnableTLS:                   getEnv("ENABLE_TLS", "false") == "true",
+		CertFile:                    getEnv("TLS_CERT_FILE", ""),
+		KeyFile:                     getEnv("TLS_KEY_FILE", ""),
+		AzureBackendType:            azureBackendType,
+		AzureAuth:                   azureAuth,
+		S3AccessKeyID:               getEnvRequired("S3_ACCESS_KEY"),
+		S3SecretAccessKey:           getEnvRequired("S3_SECRET_KEY"),
+		LogLevel:                    getEnv("LOG_LEVEL", "warn"),
+		LogFile:                     getEnv("LOG_FILE", ""),
+		LogMode:                     getEnv("LOG_MODE", "console"),
+		CacheEnabled:                getEnv("CACHE_ENABLED", "false") == "true",
+		CachePath:                   getEnv("CACHE_PATH", "/tmp/azs3-proxy-cache"),
+		CacheMaxSize:                cacheMaxSize,
+		CacheTTL:                    cacheTTL,
+		CapMbpsRead:                 capRead,
+		CapMbpsWrite:                capWrite,
+		CapMbpsCombined:             capCombined,
 	}
 
 	// Validate all required configuration is present and valid
@@ -170,6 +182,18 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("CAP_MBPS cannot be used together with CAP_MBPS_READ or CAP_MBPS_WRITE")
 	}
 
+	if c.AdaptiveConcurrencyEnabled {
+		if c.AdaptiveConcurrencyMin <= 0 {
+			return fmt.Errorf("ADAPTIVE_CONCURRENCY_MIN must be positive")
+		}
+		if c.AdaptiveConcurrencyMax < c.AdaptiveConcurrencyMin {
+			return fmt.Errorf("ADAPTIVE_CONCURRENCY_MAX must be >= min")
+		}
+		if c.AdaptiveConcurrencyTargetMs <= 0 {
+			return fmt.Errorf("ADAPTIVE_CONCURRENCY_TARGET_MS must be positive")
+		}
+	}
+
 	return nil
 }
 
@@ -200,4 +224,14 @@ func parseFloatEnv(key string) float64 {
 		}
 	}
 	return 0
+}
+
+// parseIntEnv parses an environment variable as int. Returns defaultValue if unset or invalid.
+func parseIntEnv(key string, defaultValue int) int {
+	if value, exists := os.LookupEnv(key); exists {
+		if i, err := strconv.Atoi(value); err == nil {
+			return i
+		}
+	}
+	return defaultValue
 }

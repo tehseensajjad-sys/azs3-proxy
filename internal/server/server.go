@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -26,13 +27,14 @@ import (
 // S3ProxyServer represents the HTTP server that proxies S3 API requests to Azure Blob Storage.
 // It handles routing, request validation, and coordinates backend storage operations.
 type S3ProxyServer struct {
-	router       *chi.Mux               // Chi router for HTTP request routing
-	config       *config.Config         // Configuration containing auth and server settings
-	logger       *zap.Logger            // Logger for request and error logging
-	backend      backend.StorageBackend // Storage backend implementation (Azure Blob Storage)
-	auth         *auth.AuthVerifier     // AWS SigV4 signature verifier
-	cacheManager *cache.CacheManager    // Optional cache manager for local object caching
-	telMgr       *telemetry.Manager     // Optional telemetry manager for metrics and logs
+	router       *chi.Mux                    // Chi router for HTTP request routing
+	config       *config.Config              // Configuration containing auth and server settings
+	logger       *zap.Logger                 // Logger for request and error logging
+	backend      backend.StorageBackend      // Storage backend implementation (Azure Blob Storage)
+	auth         *auth.AuthVerifier          // AWS SigV4 signature verifier
+	cacheManager *cache.CacheManager         // Optional cache manager for local object caching
+	telMgr       *telemetry.Manager          // Optional telemetry manager for metrics and logs
+	concLimiter  *adaptiveConcurrencyLimiter // Optional adaptive concurrency limiter
 }
 
 // requestIDMiddleware injects a GUID-style request ID into context and response headers.
@@ -102,6 +104,14 @@ func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger, t
 
 	s.backend = backendImpl
 
+	if cfg.AdaptiveConcurrencyEnabled {
+		s.concLimiter = newAdaptiveConcurrencyLimiter(
+			cfg.AdaptiveConcurrencyMin,
+			cfg.AdaptiveConcurrencyMax,
+			time.Duration(cfg.AdaptiveConcurrencyTargetMs)*time.Millisecond,
+		)
+	}
+
 	// Log which backend and authentication method is being used for Azure
 	logger.Info("azure backend initialized",
 		zap.String("backend_type", cfg.AzureBackendType),
@@ -122,6 +132,11 @@ func NewS3ProxyServer(router *chi.Mux, cfg *config.Config, logger *zap.Logger, t
 func (s *S3ProxyServer) registerMiddleware() {
 	// Add RequestID middleware first to ensure all logs have a request ID
 	s.router.Use(requestIDMiddleware)
+
+	// Adaptive concurrency middleware (optional)
+	if s.concLimiter != nil {
+		s.router.Use(s.concurrencyMiddleware)
+	}
 
 	// Standard logging middleware for all requests
 	s.router.Use(middleware.Logger)
@@ -190,6 +205,40 @@ func (s *S3ProxyServer) registerMiddleware() {
 	}
 }
 
+// concurrencyMiddleware gates concurrent requests and adjusts capacity based on observed latency and errors.
+// It bypasses health and admin caps endpoints to avoid blocking control-plane calls.
+func (s *S3ProxyServer) concurrencyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.concLimiter == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Skip for health and admin control endpoints
+		if r.URL.Path == "/health" || r.URL.Path == "/ping" || r.URL.Path == "/admin/caps" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		defer cancel()
+
+		start := time.Now()
+		if err := s.concLimiter.Acquire(ctx); err != nil {
+			s.logger.Warn("concurrency acquire failed", zap.Error(err))
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("server busy"))
+			return
+		}
+
+		rw := &responseCapture{ResponseWriter: w}
+		next.ServeHTTP(rw, r)
+
+		success := rw.status < 500 && rw.status != 0
+		s.concLimiter.Release(time.Since(start), success)
+	})
+}
+
 // responseCapture captures status code and headers written to a ResponseWriter
 type responseCapture struct {
 	http.ResponseWriter
@@ -223,6 +272,22 @@ func (s *S3ProxyServer) authMiddleware(next http.Handler) http.Handler {
 			s.logger.Debug("health check request",
 				zap.String("path", r.URL.Path),
 				zap.String("method", r.Method))
+
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Allow admin caps updates with optional shared secret
+		if r.URL.Path == "/admin/caps" {
+			if s.config != nil && s.config.AdminToken != "" {
+				token := r.Header.Get("X-Admin-Token")
+				if token != s.config.AdminToken {
+					s.logger.Warn("admin caps request unauthorized",
+						zap.String("remote_addr", r.RemoteAddr))
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+			}
 
 			next.ServeHTTP(w, r)
 			return
@@ -304,6 +369,57 @@ func (s *S3ProxyServer) registerRoutes() {
 	s.router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
+	})
+
+	// Admin endpoint: update bandwidth caps at runtime
+	s.router.Put("/admin/caps", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ReadMbps     float64 `json:"read_mbps"`
+			WriteMbps    float64 `json:"write_mbps"`
+			CombinedMbps float64 `json:"combined_mbps"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.logger.Warn("invalid caps payload", zap.Error(err))
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("invalid json payload"))
+			return
+		}
+
+		if req.ReadMbps < 0 || req.WriteMbps < 0 || req.CombinedMbps < 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("caps must be non-negative"))
+			return
+		}
+
+		if req.CombinedMbps > 0 && (req.ReadMbps > 0 || req.WriteMbps > 0) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("combined cap cannot be set with read/write caps"))
+			return
+		}
+
+		updater, ok := s.backend.(backend.BandwidthUpdater)
+		if !ok {
+			s.logger.Warn("backend does not support bandwidth updates")
+			w.WriteHeader(http.StatusNotImplemented)
+			_, _ = w.Write([]byte("backend does not support caps update"))
+			return
+		}
+
+		updater.UpdateCaps(req.ReadMbps, req.WriteMbps, req.CombinedMbps)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		resp := struct {
+			ReadMbps     float64 `json:"read_mbps"`
+			WriteMbps    float64 `json:"write_mbps"`
+			CombinedMbps float64 `json:"combined_mbps"`
+		}{
+			ReadMbps:     req.ReadMbps,
+			WriteMbps:    req.WriteMbps,
+			CombinedMbps: req.CombinedMbps,
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	// List all buckets

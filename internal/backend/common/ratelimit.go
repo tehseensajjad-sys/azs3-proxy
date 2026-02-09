@@ -33,6 +33,39 @@ func NewBandwidthLimiter(capReadMbps, capWriteMbps, capCombinedMbps float64) *Ba
 	}
 }
 
+// UpdateCaps adjusts Mbps caps at runtime. Non-positive values disable the cap for future wrappers.
+// Existing wrappers see the new rate because token buckets are updated in place.
+func (l *BandwidthLimiter) UpdateCaps(capReadMbps, capWriteMbps, capCombinedMbps float64) {
+	if l == nil {
+		return
+	}
+
+	toBps := func(mbps float64) float64 {
+		return mbps * 1024 * 1024 / 8
+	}
+
+	l.updateBucket(&l.download, toBps(capReadMbps))
+	l.updateBucket(&l.upload, toBps(capWriteMbps))
+	l.updateBucket(&l.combined, toBps(capCombinedMbps))
+}
+
+func (l *BandwidthLimiter) updateBucket(slot **tokenBucket, bps float64) {
+	if bps <= 0 {
+		if *slot != nil {
+			(*slot).disable()
+		}
+		*slot = nil
+		return
+	}
+
+	if *slot == nil {
+		*slot = newTokenBucket(bps)
+		return
+	}
+
+	(*slot).updateRate(bps)
+}
+
 // WrapDownload throttles a download stream (Azure -> proxy/client).
 func (l *BandwidthLimiter) WrapDownload(rc io.ReadCloser) io.ReadCloser {
 	if l == nil || rc == nil {
@@ -150,6 +183,38 @@ func (tb *tokenBucket) refillLocked() {
 	elapsed := now.Sub(tb.last).Seconds()
 	tb.tokens = math.Min(tb.capacity, tb.tokens+tb.fillRate*elapsed)
 	tb.last = now
+}
+
+func (tb *tokenBucket) updateRate(bps float64) {
+	if tb == nil {
+		return
+	}
+
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	tb.refillLocked()
+	tb.capacity = bps
+	tb.fillRate = bps
+	if tb.tokens > bps {
+		tb.tokens = bps
+	}
+	tb.last = time.Now()
+}
+
+func (tb *tokenBucket) disable() {
+	if tb == nil {
+		return
+	}
+
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	inf := math.Inf(1)
+	tb.capacity = inf
+	tb.tokens = inf
+	tb.fillRate = inf
+	tb.last = time.Now()
 }
 
 type throttledReader struct {
