@@ -70,6 +70,34 @@ For detailed information about metrics, logging, and observability configuration
 
 ### Installation
 
+#### Option 1: Docker (recommended)
+
+Pull the pre-built image from Docker Hub:
+
+```bash
+docker pull bhansalivikas/azs3-proxy:latest
+```
+
+Or from GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/vibhansa-msft/azs3-proxy:latest
+```
+
+Run with environment variables:
+
+```bash
+docker run -d --name azs3-proxy \
+  -p 8080:8080 \
+  -e AZURE_STORAGE_ACCOUNT=youraccount \
+  -e AZURE_STORAGE_KEY=yourkey \
+  -e S3_ACCESS_KEY=your-s3-access-key \
+  -e S3_SECRET_KEY=your-s3-secret-key \
+  bhansalivikas/azs3-proxy:latest
+```
+
+#### Option 2: Build from source
+
 ```bash
 git clone https://github.com/vibhansa-msft/azs3-proxy.git
 cd azs3-proxy
