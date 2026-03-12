@@ -64,7 +64,7 @@ For detailed information about metrics, logging, and observability configuration
 
 ### Prerequisites
 
-- Go 1.25 or later (CI uses Go 1.25.6)
+- Go 1.26 or later (CI uses Go 1.26.0)
 - Azure storage account with connection string or account key
 - Docker (optional, for containerized deployment)
 
