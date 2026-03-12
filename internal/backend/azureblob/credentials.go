@@ -38,7 +38,7 @@ func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuth
 			},
 			PerCallPolicies: []policy.Policy{backendcommon.RequestIDPolicy{}},
 			Telemetry: policy.TelemetryOptions{
-				ApplicationID: "azs3-proxy/" + version.Version,
+				ApplicationID: version.AzureApplicationIDPrefix + version.Version,
 			},
 			Logging: policy.LogOptions{
 				IncludeBody:        includeBody,

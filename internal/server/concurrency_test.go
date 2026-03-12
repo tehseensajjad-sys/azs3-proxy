@@ -73,3 +73,44 @@ func TestConcurrencyMiddlewareBusyResponse(t *testing.T) {
 		t.Fatalf("expected 503 when limiter exhausted, got %d", w.Code)
 	}
 }
+
+func TestNewAdaptiveConcurrencyLimiterNormalizesAndTracksInFlight(t *testing.T) {
+	l := newAdaptiveConcurrencyLimiter(0, 0, 0)
+
+	if got := l.CurrentLimit(); got != 1 {
+		t.Fatalf("expected normalized current limit to be 1, got %d", got)
+	}
+
+	if got := l.InFlight(); got != 0 {
+		t.Fatalf("expected initial in-flight to be 0, got %d", got)
+	}
+
+	if err := l.Acquire(context.Background()); err != nil {
+		t.Fatalf("acquire failed: %v", err)
+	}
+
+	if got := l.InFlight(); got != 1 {
+		t.Fatalf("expected in-flight to be 1 after acquire, got %d", got)
+	}
+
+	l.Release(10*time.Millisecond, true)
+	if got := l.InFlight(); got != 0 {
+		t.Fatalf("expected in-flight to return to 0 after release, got %d", got)
+	}
+}
+
+func TestConcurrencyMiddlewareNoLimiterPassthrough(t *testing.T) {
+	s := &S3ProxyServer{concLimiter: nil}
+
+	handler := s.concurrencyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/objects", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected passthrough status 201, got %d", w.Code)
+	}
+}

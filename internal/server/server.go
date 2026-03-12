@@ -220,7 +220,10 @@ func (s *S3ProxyServer) concurrencyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		timeoutMs := s.config.AdaptiveConcurrencyAcquireMs
+		timeoutMs := 500
+		if s.config != nil {
+			timeoutMs = s.config.AdaptiveConcurrencyAcquireMs
+		}
 		if timeoutMs <= 0 {
 			timeoutMs = 500
 		}

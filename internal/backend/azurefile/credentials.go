@@ -37,7 +37,7 @@ func BuildServiceClientFromCredential(ctx context.Context, authConfig *config.Az
 		ClientOptions: azcore.ClientOptions{
 			Transport: &http.Client{Transport: transport},
 			Telemetry: policy.TelemetryOptions{
-				ApplicationID: "azs3-proxy/" + version.Version,
+				ApplicationID: version.AzureApplicationIDPrefix + version.Version,
 			},
 			Logging: policy.LogOptions{
 				IncludeBody:        includeBody,
