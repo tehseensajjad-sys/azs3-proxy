@@ -12,7 +12,6 @@ import (
 
 	backendcommon "github.com/vibhansa-msft/azs3-proxy/internal/backend/common"
 	"github.com/vibhansa-msft/azs3-proxy/internal/config"
-	"github.com/vibhansa-msft/azs3-proxy/internal/version"
 )
 
 // BuildServiceClientFromCredential creates an Azure File Service Client from credentials
@@ -36,9 +35,6 @@ func BuildServiceClientFromCredential(ctx context.Context, authConfig *config.Az
 	clientOptions := &service.ClientOptions{
 		ClientOptions: azcore.ClientOptions{
 			Transport: &http.Client{Transport: transport},
-			Telemetry: policy.TelemetryOptions{
-				ApplicationID: version.AzureApplicationIDPrefix + version.Version,
-			},
 			Logging: policy.LogOptions{
 				IncludeBody:        includeBody,
 				AllowedHeaders:     []string{"*"},

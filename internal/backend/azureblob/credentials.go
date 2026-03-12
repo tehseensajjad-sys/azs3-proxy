@@ -12,7 +12,6 @@ import (
 
 	backendcommon "github.com/vibhansa-msft/azs3-proxy/internal/backend/common"
 	"github.com/vibhansa-msft/azs3-proxy/internal/config"
-	"github.com/vibhansa-msft/azs3-proxy/internal/version"
 )
 
 // BuildClientFromCredential creates an Azure Blob Client from credentials
@@ -37,9 +36,6 @@ func BuildClientFromCredential(ctx context.Context, authConfig *config.AzureAuth
 				Transport: transport,
 			},
 			PerCallPolicies: []policy.Policy{backendcommon.RequestIDPolicy{}},
-			Telemetry: policy.TelemetryOptions{
-				ApplicationID: version.AzureApplicationIDPrefix + version.Version,
-			},
 			Logging: policy.LogOptions{
 				IncludeBody:        includeBody,
 				AllowedHeaders:     []string{"*"},

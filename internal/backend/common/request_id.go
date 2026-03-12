@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+
+	"github.com/vibhansa-msft/azs3-proxy/internal/version"
 )
 
 const ClientRequestIDHeader = "x-ms-client-request-id"
@@ -26,7 +28,11 @@ func RequestIDFromContext(ctx context.Context) string {
 	return ""
 }
 
-// RequestIDPolicy injects x-ms-client-request-id so Azure echoes it back for correlation.
+// userAgentPrefix is computed once at init to avoid repeated string concatenation per request.
+var userAgentPrefix = version.AzureApplicationIDPrefix + version.Version
+
+// RequestIDPolicy injects x-ms-client-request-id so Azure echoes it back for correlation
+// and prepends the custom User-Agent to bypass the SDK's 24-character ApplicationID limit.
 type RequestIDPolicy struct{}
 
 func (p RequestIDPolicy) Do(req *policy.Request) (*http.Response, error) {
@@ -35,5 +41,14 @@ func (p RequestIDPolicy) Do(req *policy.Request) (*http.Response, error) {
 			req.Raw().Header.Set(ClientRequestIDHeader, rid)
 		}
 	}
+
+	// Prepend our full application identifier to the User-Agent header.
+	// This bypasses the Azure SDK's 24-character truncation on ApplicationID.
+	if ua := req.Raw().Header.Get("User-Agent"); ua == "" {
+		req.Raw().Header.Set("User-Agent", userAgentPrefix)
+	} else {
+		req.Raw().Header.Set("User-Agent", userAgentPrefix+" "+ua)
+	}
+
 	return req.Next()
 }

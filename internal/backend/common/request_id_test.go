@@ -54,6 +54,13 @@ func TestRequestIDPolicySetsHeader(t *testing.T) {
 		t.Fatalf("expected header set from context, got %q", got)
 	}
 
+	// Verify User-Agent was prepended with full application identifier
+	ua := transport.req.Header.Get("User-Agent")
+	wantPrefix := "azpartner-azs3proxy/"
+	if !strings.Contains(ua, wantPrefix) {
+		t.Fatalf("expected User-Agent to contain %q, got %q", wantPrefix, ua)
+	}
+
 	ctx = context.WithValue(context.Background(), "requestID", "abc123") //nolint:staticcheck
 	req, err = runtime.NewRequest(ctx, http.MethodGet, "https://example.com")
 	if err != nil {
