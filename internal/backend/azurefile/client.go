@@ -420,7 +420,7 @@ func (af *AzureFileBackend) HeadObject(ctx context.Context, bucketName, objectKe
 
 // listAllObjects returns all files in a share with optional prefix filtering.
 // Caller is responsible for telemetry recording to avoid double counting.
-func (af *AzureFileBackend) listAllObjects(ctx context.Context, bucketName, prefix string) (objects []string, err error) {
+func (af *AzureFileBackend) listAllObjects(ctx context.Context, bucketName, prefix string) (objects []backend.ObjectListItem, err error) {
 	shareClient := af.getShareClient(bucketName)
 	rootDirClient := shareClient.NewRootDirectoryClient()
 
@@ -445,7 +445,11 @@ func (af *AzureFileBackend) listAllObjects(ctx context.Context, bucketName, pref
 						}
 						// Apply prefix filter
 						if prefix == "" || strings.HasPrefix(filePath, prefix) {
-							objects = append(objects, filePath)
+							item := backend.ObjectListItem{Key: filePath}
+							if fileItem.Properties != nil && fileItem.Properties.ContentLength != nil {
+								item.Size = *fileItem.Properties.ContentLength
+							}
+							objects = append(objects, item)
 						}
 					}
 				}
@@ -482,13 +486,13 @@ func (af *AzureFileBackend) listAllObjects(ctx context.Context, bucketName, pref
 }
 
 // ListObjects lists all files in a share with optional prefix filter.
-func (af *AzureFileBackend) ListObjects(ctx context.Context, bucketName, prefix string) (objects []string, err error) {
+func (af *AzureFileBackend) ListObjects(ctx context.Context, bucketName, prefix string) (objects []backend.ObjectListItem, err error) {
 	defer func() { af.recordAzureRequest(ctx, "ListObjects", err) }()
 	return af.listAllObjects(ctx, bucketName, prefix)
 }
 
 // ListObjectsV2 returns a single page of files with pagination tokens encoded as offsets.
-func (af *AzureFileBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []string, nextContinuationToken string, err error) {
+func (af *AzureFileBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []backend.ObjectListItem, nextContinuationToken string, err error) {
 	defer func() { af.recordAzureRequest(ctx, "ListObjects", err) }()
 
 	allObjects, err := af.listAllObjects(ctx, bucketName, prefix)
@@ -875,17 +879,17 @@ func (af *AzureFileBackend) ListObjectVersions(ctx context.Context, bucketName, 
 	}
 
 	var versions []interface{}
-	for _, objKey := range objects {
+	for _, obj := range objects {
 		// Get object metadata
-		exists, size, lastModified, err := af.HeadObject(ctx, bucketName, objKey)
+		exists, size, lastModified, err := af.HeadObject(ctx, bucketName, obj.Key)
 		if err != nil || !exists {
 			continue
 		}
 
 		version := backend.ObjectVersion{
-			Key:       objKey,
+			Key:       obj.Key,
 			VersionID: "null", // Azure Files doesn't support versioning
-			ETag:      fmt.Sprintf("\"%s\"", objKey),
+			ETag:      fmt.Sprintf("\"%s\"", obj.Key),
 			Size:      size,
 			Modified:  lastModified.Format(time.RFC3339),
 			IsLatest:  true,

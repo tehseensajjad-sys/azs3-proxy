@@ -16,10 +16,10 @@ export LOG_MODE=file
 export LOG_LEVEL=info
 ```
 
-Start in foreground with pprof:
+Start the proxy:
 
 ```bash
-./azs3-proxy --foreground --pprof
+./azs3-proxy 
 ```
 
 ## Server & Runtime

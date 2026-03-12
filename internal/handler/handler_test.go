@@ -127,8 +127,8 @@ type MockBackend struct {
 	GetObjectRangeFunc          func(ctx context.Context, bucketName, objectKey string, offset, length int64) (backend.ObjectInfo, error)
 	DeleteObjectFunc            func(ctx context.Context, bucketName, objectKey string) error
 	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error)
-	ListObjectsFunc             func(ctx context.Context, bucketName, prefix string) ([]string, error)
-	ListObjectsV2Func           func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error)
+	ListObjectsFunc             func(ctx context.Context, bucketName, prefix string) ([]backend.ObjectListItem, error)
+	ListObjectsV2Func           func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error)
 	InitiateMultipartUploadFunc func(ctx context.Context, bucketName, objectKey string) (string, error)
 	UploadPartFunc              func(ctx context.Context, bucketName, objectKey, uploadID string, partNumber int, size int64, data io.Reader) (string, error)
 	CompleteMultipartUploadFunc func(ctx context.Context, bucketName, objectKey, uploadID string, partETags map[int]string) (string, error)
@@ -244,14 +244,14 @@ func (m *MockBackend) HeadObject(ctx context.Context, bucketName, objectKey stri
 	return true, int64(len("test data")), time.Now(), nil
 }
 
-func (m *MockBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]string, error) {
+func (m *MockBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]backend.ObjectListItem, error) {
 	if m.ListObjectsFunc != nil {
 		return m.ListObjectsFunc(ctx, bucketName, prefix)
 	}
-	return []string{"key1", "key2"}, nil
+	return []backend.ObjectListItem{{Key: "key1"}, {Key: "key2"}}, nil
 }
 
-func (m *MockBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+func (m *MockBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error) {
 	if m.ListObjectsV2Func != nil {
 		return m.ListObjectsV2Func(ctx, bucketName, prefix, continuationToken, maxResults)
 	}
@@ -535,14 +535,14 @@ func TestDeleteBucketHandler(t *testing.T) {
 
 func TestListObjectsV2Handler(t *testing.T) {
 	mockBackend := &MockBackend{
-		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error) {
 			if continuationToken != "" {
 				t.Fatalf("unexpected continuation token: %s", continuationToken)
 			}
 			if maxResults != 1000 {
 				t.Fatalf("expected default maxResults 1000, got %d", maxResults)
 			}
-			return []string{"obj1", "obj2"}, "", nil
+			return []backend.ObjectListItem{{Key: "obj1"}, {Key: "obj2"}}, "", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -563,14 +563,14 @@ func TestListObjectsV2Handler(t *testing.T) {
 
 func TestListObjectsV2Handler_WithContinuation(t *testing.T) {
 	mockBackend := &MockBackend{
-		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error) {
 			if continuationToken != "start-token" {
 				t.Fatalf("expected continuation token start-token, got %s", continuationToken)
 			}
 			if maxResults != 2 {
 				t.Fatalf("expected maxResults 2, got %d", maxResults)
 			}
-			return []string{"a", "b"}, "next-token", nil
+			return []backend.ObjectListItem{{Key: "a"}, {Key: "b"}}, "next-token", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -606,14 +606,14 @@ func TestListObjectsV2Handler_WithContinuation(t *testing.T) {
 
 func TestListObjectsV2Handler_MaxKeysClamp(t *testing.T) {
 	mockBackend := &MockBackend{
-		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error) {
 			if continuationToken != "tok" {
 				t.Fatalf("expected continuation token tok, got %s", continuationToken)
 			}
 			if maxResults != 1000 { // expect clamp to 1000 when client asks for too many
 				t.Fatalf("expected maxResults 1000, got %d", maxResults)
 			}
-			return []string{"only"}, "next", nil
+			return []backend.ObjectListItem{{Key: "only"}}, "next", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -652,11 +652,11 @@ func TestListObjectsV2Handler_MaxKeysClamp(t *testing.T) {
 
 func TestListObjectsV2Handler_InvalidMaxKeys(t *testing.T) {
 	mockBackend := &MockBackend{
-		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error) {
 			if maxResults != 1000 {
 				t.Fatalf("expected default maxResults 1000 on parse failure, got %d", maxResults)
 			}
-			return []string{"one"}, "", nil
+			return []backend.ObjectListItem{{Key: "one"}}, "", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1536,7 +1536,7 @@ func TestHeadObjectHandler_NotFound(t *testing.T) {
 // TestListObjectsV2Handler_Error tests error handling in ListObjects
 func TestListObjectsV2Handler_Error(t *testing.T) {
 	mockBackend := &MockBackend{
-		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+		ListObjectsV2Func: func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error) {
 			return nil, "", errors.New("list failed")
 		},
 	}
@@ -1688,8 +1688,8 @@ func TestS3HandlerStatsIntegration(t *testing.T) {
 // TestPostObjectHandler tests the default POST handler (if implemented)
 func TestPostObjectHandler(t *testing.T) {
 	mockBackend := &MockBackend{
-		ListObjectsFunc: func(ctx context.Context, bucketName, prefix string) ([]string, error) {
-			return []string{"key1", "key2"}, nil
+		ListObjectsFunc: func(ctx context.Context, bucketName, prefix string) ([]backend.ObjectListItem, error) {
+			return []backend.ObjectListItem{{Key: "key1"}, {Key: "key2"}}, nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()

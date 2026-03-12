@@ -22,12 +22,36 @@ fi
 # ---------------------------
 RG_NAME="VikasFuseGrp"
 LOCATION="southindia"
-VM_SIZE="Standard_D16s_v5" # 16 vCPUs, 64 GiB RAM
+VM_SIZE="Standard_D4s_v5" # 4 vCPUs, 16 GiB RAM (adjust if SKU unavailable)
 ADMIN_USER="azureuser"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CLOUD_INIT="$SCRIPT_DIR/cloud-init.yaml"
 LOCAL_ENV_FILE="$PROJECT_ROOT/.env"
+SSH_PASSWORD="${SSH_PASSWORD:-}"
+
+SSH_BASE_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+SSH_WAIT_OPTS=(-o LogLevel=QUIET -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+
+if [ -n "$SSH_PASSWORD" ]; then
+    echo "Using password authentication for SSH."
+    if ! command -v sshpass &> /dev/null; then
+        echo "sshpass not found. Installing..."
+        sudo apt-get update && sudo apt-get install -y sshpass
+    fi
+    SSH_CMD=(sshpass -p "$SSH_PASSWORD" ssh "${SSH_BASE_OPTS[@]}")
+    SCP_CMD=(sshpass -p "$SSH_PASSWORD" scp "${SSH_BASE_OPTS[@]}")
+    SSH_WAIT_CMD=(sshpass -p "$SSH_PASSWORD" ssh "${SSH_WAIT_OPTS[@]}")
+else
+    echo "Using SSH key authentication (default)."
+    SSH_CMD=(ssh "${SSH_BASE_OPTS[@]}")
+    SCP_CMD=(scp "${SSH_BASE_OPTS[@]}")
+    SSH_WAIT_CMD=(ssh "${SSH_WAIT_OPTS[@]}")
+fi
+
+ssh_exec() { "${SSH_CMD[@]}" "$@"; }
+ssh_wait_exec() { "${SSH_WAIT_CMD[@]}" "$@"; }
+scp_exec() { "${SCP_CMD[@]}" "$@"; }
 
 # If a VM name is provided and is NOT the sentinel value "x", reuse it.
 # If the name is "x" (or empty), force creation of a new VM.
@@ -65,7 +89,10 @@ if [ "$SKIP_CREATION" = false ]; then
     echo "Creating Resource Group: $RG_NAME in $LOCATION..."
     az group create --name $RG_NAME --location $LOCATION --output none
 
-    echo "Creating VM: $VM_NAME..."
+    echo "Creating VM: $VM_NAME (size: $VM_SIZE)..."
+
+    # Run creation with explicit error handling to surface SKU availability issues clearly
+    set +e
     az vm create \
     --resource-group $RG_NAME \
     --name $VM_NAME \
@@ -75,7 +102,19 @@ if [ "$SKIP_CREATION" = false ]; then
     --generate-ssh-keys \
     --custom-data "@$CLOUD_INIT" \
     --public-ip-sku Standard \
-    --output json > vm_create_output.json
+    --output json > vm_create_output.json 2> vm_create_error.log
+    status=$?
+    set -e
+
+    if [ $status -ne 0 ]; then
+        if grep -qi "SkuNotAvailable" vm_create_error.log; then
+            echo "Error: VM size $VM_SIZE is not available in region $LOCATION."
+            echo "Please choose a different size or region and retry."
+        else
+            echo "VM creation failed. See vm_create_error.log for details."
+        fi
+        exit 1
+    fi
 
     echo "VM Provisioned. Configuring Network Security..."
     az vm open-port --resource-group $RG_NAME --name $VM_NAME --port 8080 --priority 1010 --output none
@@ -106,7 +145,7 @@ echo "========================================================"
 echo "Waiting for SSH to become available..."
 MAX_RETRIES=60
 COUNT=0
-while ! ssh -o LogLevel=QUIET -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@$IP_ADDRESS" "echo 'SSH Ready'" &>/dev/null; do
+while ! ssh_wait_exec "$ADMIN_USER@$IP_ADDRESS" "echo 'SSH Ready'" &>/dev/null; do
     echo "Waiting for SSH... ($COUNT/$MAX_RETRIES)"
     sleep 5
     COUNT=$((COUNT+1))
@@ -121,8 +160,11 @@ echo "SSH is active."
 # 5. Fix/Verify Dependencies (Go, Warp) - Robustness for existing VMs
 # ---------------------------
 echo "Verifying dependencies on VM..."
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@$IP_ADDRESS" "
+ssh_exec "$ADMIN_USER@$IP_ADDRESS" "
     set -e
+    sudo apt-get update -y
+    sudo apt-get install -y build-essential make python3 python3-pip python3-venv lsof curl tar
+
     # Check Go
     if ! command -v go &> /dev/null; then
         echo 'Go not found. Installing...'
@@ -131,6 +173,13 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@$IP
         echo 'export PATH=\$PATH:/usr/local/go/bin' >> ~/.bashrc
         echo 'export PATH=\$PATH:~/go/bin' >> ~/.bashrc
         export PATH=\$PATH:/usr/local/go/bin
+    fi
+
+    # Ensure boto3 for python helpers (bucket create)
+    if ! python3 - <<'PY' >/dev/null 2>&1; then
+import boto3
+PY
+        pip3 install --user boto3
     fi
     
     # Check Warp
@@ -151,10 +200,10 @@ TAR_PATH="/tmp/azs3-proxy-source.tar.gz"
 tar --exclude='.git' --exclude='bin' --exclude='warp_runs' -czf "$TAR_PATH" -C "$PROJECT_ROOT" .
 
 echo "Copying project tarball to VM..."
-scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$TAR_PATH" "$ADMIN_USER@$IP_ADDRESS:/tmp/source.tar.gz"
+scp_exec "$TAR_PATH" "$ADMIN_USER@$IP_ADDRESS:/tmp/source.tar.gz"
 
 echo "Unpacking project on VM..."
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@$IP_ADDRESS" "
+ssh_exec "$ADMIN_USER@$IP_ADDRESS" "
     mkdir -p ~/azs3-proxy
     tar -xzf /tmp/source.tar.gz -C ~/azs3-proxy
     # Ensure dependencies are tidy? No, we trust local state or run go mod tidy
@@ -164,7 +213,7 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@$IP
 # 7. Run Benchmarks
 # ---------------------------
 echo "Running Benchmarks on VM (inside screen session 'benchmark')..."
-ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$ADMIN_USER@$IP_ADDRESS" "
+ssh_exec -t "$ADMIN_USER@$IP_ADDRESS" "
     # Install screen and nload if not present
     if ! command -v screen &> /dev/null || ! command -v nload &> /dev/null; then
         echo 'Installing screen and nload...'

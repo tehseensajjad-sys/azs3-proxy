@@ -220,7 +220,12 @@ func (s *S3ProxyServer) concurrencyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		timeoutMs := s.config.AdaptiveConcurrencyAcquireMs
+		if timeoutMs <= 0 {
+			timeoutMs = 500
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutMs)*time.Millisecond)
 		defer cancel()
 
 		start := time.Now()

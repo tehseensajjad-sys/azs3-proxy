@@ -257,6 +257,7 @@ func (h *S3Handler) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) 
 func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	prefix := r.URL.Query().Get("prefix")
+	delimiter := r.URL.Query().Get("delimiter")
 	continuationToken := r.URL.Query().Get("continuation-token")
 	maxKeys := 1000
 	if maxKeysStr := r.URL.Query().Get("max-keys"); maxKeysStr != "" {
@@ -293,15 +294,63 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Convert object names to S3 object list format
-	objList := make([]models.Object, len(objects))
-	for i, key := range objects {
-		objList[i] = models.Object{
-			Key:          key,
-			LastModified: time.Now().UTC().Format(time.RFC3339),
-			ETag:         "\"0\"",
-			Size:         0,
-			StorageClass: "STANDARD",
+	// Convert object metadata to S3 object list format, applying delimiter grouping
+	var objList []models.Object
+	var commonPrefixes []models.CommonPrefix
+
+	if delimiter != "" {
+		// When a delimiter is specified, group keys that share a common prefix
+		// e.g. with prefix="" and delimiter="/", key "a/b/c.txt" yields CommonPrefix "a/"
+		seen := make(map[string]bool)
+		for _, item := range objects {
+			key := item.Key
+			// Strip the request prefix to find the remainder
+			rest := key[len(prefix):]
+			if idx := strings.Index(rest, delimiter); idx >= 0 {
+				// This key belongs to a common prefix group
+				cp := prefix + rest[:idx+len(delimiter)]
+				if !seen[cp] {
+					seen[cp] = true
+					commonPrefixes = append(commonPrefixes, models.CommonPrefix{Prefix: cp})
+				}
+			} else {
+				// This key is a direct child, include as a content entry
+				lastMod := item.LastModified
+				if lastMod.IsZero() {
+					lastMod = time.Now().UTC()
+				}
+				etag := item.ETag
+				if etag == "" {
+					etag = "\"0\""
+				}
+				objList = append(objList, models.Object{
+					Key:          item.Key,
+					LastModified: lastMod.Format(time.RFC3339),
+					ETag:         etag,
+					Size:         item.Size,
+					StorageClass: "STANDARD",
+				})
+			}
+		}
+	} else {
+		// No delimiter — return all objects as content entries
+		objList = make([]models.Object, len(objects))
+		for i, item := range objects {
+			lastMod := item.LastModified
+			if lastMod.IsZero() {
+				lastMod = time.Now().UTC()
+			}
+			etag := item.ETag
+			if etag == "" {
+				etag = "\"0\""
+			}
+			objList[i] = models.Object{
+				Key:          item.Key,
+				LastModified: lastMod.Format(time.RFC3339),
+				ETag:         etag,
+				Size:         item.Size,
+				StorageClass: "STANDARD",
+			}
 		}
 	}
 
@@ -310,12 +359,14 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 	resp := models.ListObjectsV2Response{
 		Name:                  bucket,
 		Prefix:                prefix,
+		Delimiter:             delimiter,
 		ContinuationToken:     continuationToken,
 		NextContinuationToken: nextToken,
-		KeyCount:              len(objList),
+		KeyCount:              len(objList) + len(commonPrefixes),
 		MaxKeys:               maxKeys,
 		IsTruncated:           isTruncated,
 		Contents:              objList,
+		CommonPrefixes:        commonPrefixes,
 	}
 
 	w.Header().Set("Content-Type", "application/xml")

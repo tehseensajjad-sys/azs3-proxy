@@ -412,12 +412,12 @@ func (ab *AzureBlobBackend) HeadObject(ctx context.Context, bucketName, objectKe
 	return true, sz, lm, nil
 }
 
-func (ab *AzureBlobBackend) ListObjects(ctx context.Context, bucketName, prefix string) (objects []string, err error) {
+func (ab *AzureBlobBackend) ListObjects(ctx context.Context, bucketName, prefix string) (objects []backend.ObjectListItem, err error) {
 	objects, _, err = ab.ListObjectsV2(ctx, bucketName, prefix, "", 0)
 	return objects, err
 }
 
-func (ab *AzureBlobBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []string, nextContinuationToken string, err error) {
+func (ab *AzureBlobBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []backend.ObjectListItem, nextContinuationToken string, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "ListObjects", err) }()
 
 	containerClient := ab.getContainerClient(bucketName)
@@ -445,7 +445,19 @@ func (ab *AzureBlobBackend) ListObjectsV2(ctx context.Context, bucketName, prefi
 	if resp.Segment != nil && resp.Segment.BlobItems != nil {
 		for _, blob := range resp.Segment.BlobItems {
 			if blob.Name != nil {
-				objects = append(objects, *blob.Name)
+				item := backend.ObjectListItem{Key: *blob.Name}
+				if blob.Properties != nil {
+					if blob.Properties.ContentLength != nil {
+						item.Size = *blob.Properties.ContentLength
+					}
+					if blob.Properties.LastModified != nil {
+						item.LastModified = blob.Properties.LastModified.UTC()
+					}
+					if blob.Properties.ETag != nil {
+						item.ETag = string(*blob.Properties.ETag)
+					}
+				}
+				objects = append(objects, item)
 			}
 		}
 	}

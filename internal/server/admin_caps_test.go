@@ -38,10 +38,10 @@ func (d *dummyBackend) DeleteObject(context.Context, string, string) error { ret
 func (d *dummyBackend) HeadObject(context.Context, string, string) (bool, int64, time.Time, error) {
 	return true, 0, time.Time{}, nil
 }
-func (d *dummyBackend) ListObjects(context.Context, string, string) ([]string, error) {
+func (d *dummyBackend) ListObjects(context.Context, string, string) ([]backend.ObjectListItem, error) {
 	return nil, nil
 }
-func (d *dummyBackend) ListObjectsV2(context.Context, string, string, string, int32) ([]string, string, error) {
+func (d *dummyBackend) ListObjectsV2(context.Context, string, string, string, int32) ([]backend.ObjectListItem, string, error) {
 	return nil, "", nil
 }
 func (d *dummyBackend) InitiateMultipartUpload(context.Context, string, string) (string, error) {
@@ -95,10 +95,10 @@ func (storageOnlyBackend) DeleteObject(context.Context, string, string) error { 
 func (storageOnlyBackend) HeadObject(context.Context, string, string) (bool, int64, time.Time, error) {
 	return true, 0, time.Time{}, nil
 }
-func (storageOnlyBackend) ListObjects(context.Context, string, string) ([]string, error) {
+func (storageOnlyBackend) ListObjects(context.Context, string, string) ([]backend.ObjectListItem, error) {
 	return nil, nil
 }
-func (storageOnlyBackend) ListObjectsV2(context.Context, string, string, string, int32) ([]string, string, error) {
+func (storageOnlyBackend) ListObjectsV2(context.Context, string, string, string, int32) ([]backend.ObjectListItem, string, error) {
 	return nil, "", nil
 }
 func (storageOnlyBackend) InitiateMultipartUpload(context.Context, string, string) (string, error) {

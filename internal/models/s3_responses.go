@@ -42,16 +42,22 @@ type ListObjectsResponse struct {
 // ListObjectsV2Response represents the S3 API response for the ListObjectsV2 operation.
 // It includes V2-specific pagination tokens and key counts.
 type ListObjectsV2Response struct {
-	XMLName               xml.Name `xml:"ListBucketResult"` // XML root element name
-	Name                  string   `xml:"Name"`             // Bucket name
-	Prefix                string   `xml:"Prefix"`           // Request prefix filter
-	ContinuationToken     string   `xml:"ContinuationToken,omitempty"`
-	NextContinuationToken string   `xml:"NextContinuationToken,omitempty"`
-	KeyCount              int      `xml:"KeyCount"`              // Number of keys in this response
-	MaxKeys               int      `xml:"MaxKeys"`               // Maximum keys returned
-	IsTruncated           bool     `xml:"IsTruncated"`           // Whether more results exist
-	Contents              []Object `xml:"Contents"`              // List of objects
-	CommonPrefixes        []string `xml:"CommonPrefixes>Prefix"` // Common prefixes when using delimiter
+	XMLName               xml.Name       `xml:"ListBucketResult"` // XML root element name
+	Name                  string         `xml:"Name"`             // Bucket name
+	Prefix                string         `xml:"Prefix"`           // Request prefix filter
+	Delimiter             string         `xml:"Delimiter,omitempty"`
+	ContinuationToken     string         `xml:"ContinuationToken,omitempty"`
+	NextContinuationToken string         `xml:"NextContinuationToken,omitempty"`
+	KeyCount              int            `xml:"KeyCount"`    // Number of keys in this response
+	MaxKeys               int            `xml:"MaxKeys"`     // Maximum keys returned
+	IsTruncated           bool           `xml:"IsTruncated"` // Whether more results exist
+	Contents              []Object       `xml:"Contents"`    // List of objects
+	CommonPrefixes        []CommonPrefix `xml:"CommonPrefixes,omitempty"`
+}
+
+// CommonPrefix represents a single common prefix entry in a ListObjectsV2 response.
+type CommonPrefix struct {
+	Prefix string `xml:"Prefix"` // The common prefix value
 }
 
 // Object represents a single object/key in the list objects response.

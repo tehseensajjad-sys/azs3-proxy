@@ -48,10 +48,10 @@ func (f *fakeBackend) HeadObject(ctx context.Context, bucketName, objectKey stri
 	}
 	return true, int64(len(f.getObjectData)), time.Now(), nil
 }
-func (f *fakeBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]string, error) {
+func (f *fakeBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]backend.ObjectListItem, error) {
 	return nil, nil
 }
-func (f *fakeBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+func (f *fakeBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error) {
 	objects, err := f.ListObjects(ctx, bucketName, prefix)
 	return objects, "", err
 }

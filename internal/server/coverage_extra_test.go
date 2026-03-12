@@ -52,10 +52,10 @@ func (stubBackend) DeleteObject(ctx context.Context, bucketName, objectKey strin
 func (stubBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
 	return true, 1, time.Now(), nil
 }
-func (stubBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]string, error) {
-	return []string{"obj"}, nil
+func (stubBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]backend.ObjectListItem, error) {
+	return []backend.ObjectListItem{{Key: "obj"}}, nil
 }
-func (stubBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]string, string, error) {
+func (stubBackend) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error) {
 	objs, _ := (stubBackend{}).ListObjects(ctx, bucketName, prefix)
 	return objs, "", nil
 }

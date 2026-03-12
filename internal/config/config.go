@@ -15,10 +15,11 @@ type Config struct {
 	AdminToken string // Optional shared secret for admin endpoints (e.g., caps update)
 
 	// Adaptive concurrency configuration
-	AdaptiveConcurrencyEnabled  bool // Enable adaptive concurrency limiter
-	AdaptiveConcurrencyMin      int  // Minimum concurrent requests
-	AdaptiveConcurrencyMax      int  // Maximum concurrent requests
-	AdaptiveConcurrencyTargetMs int  // Target latency in milliseconds for adjustments
+	AdaptiveConcurrencyEnabled   bool // Enable adaptive concurrency limiter
+	AdaptiveConcurrencyMin       int  // Minimum concurrent requests
+	AdaptiveConcurrencyMax       int  // Maximum concurrent requests
+	AdaptiveConcurrencyTargetMs  int  // Target latency in milliseconds for adjustments
+	AdaptiveConcurrencyAcquireMs int  // Timeout in milliseconds when waiting for a concurrency slot
 
 	// HTTPS/TLS Configuration
 	EnableTLS bool   // Whether to enable HTTPS
@@ -90,29 +91,30 @@ func LoadConfig() (*Config, error) {
 	capCombined := parseFloatEnv("CAP_MBPS")
 
 	cfg := &Config{
-		ListenAddr:                  getEnv("LISTEN_ADDR", ":8080"),
-		AdminToken:                  getEnv("ADMIN_TOKEN", ""),
-		AdaptiveConcurrencyEnabled:  getEnv("ADAPTIVE_CONCURRENCY_ENABLED", "false") == "true",
-		AdaptiveConcurrencyMin:      parseIntEnv("ADAPTIVE_CONCURRENCY_MIN", 4),
-		AdaptiveConcurrencyMax:      parseIntEnv("ADAPTIVE_CONCURRENCY_MAX", 64),
-		AdaptiveConcurrencyTargetMs: parseIntEnv("ADAPTIVE_CONCURRENCY_TARGET_MS", 200),
-		EnableTLS:                   getEnv("ENABLE_TLS", "false") == "true",
-		CertFile:                    getEnv("TLS_CERT_FILE", ""),
-		KeyFile:                     getEnv("TLS_KEY_FILE", ""),
-		AzureBackendType:            azureBackendType,
-		AzureAuth:                   azureAuth,
-		S3AccessKeyID:               getEnvRequired("S3_ACCESS_KEY"),
-		S3SecretAccessKey:           getEnvRequired("S3_SECRET_KEY"),
-		LogLevel:                    getEnv("LOG_LEVEL", "warn"),
-		LogFile:                     getEnv("LOG_FILE", ""),
-		LogMode:                     getEnv("LOG_MODE", "console"),
-		CacheEnabled:                getEnv("CACHE_ENABLED", "false") == "true",
-		CachePath:                   getEnv("CACHE_PATH", "/tmp/azs3-proxy-cache"),
-		CacheMaxSize:                cacheMaxSize,
-		CacheTTL:                    cacheTTL,
-		CapMbpsRead:                 capRead,
-		CapMbpsWrite:                capWrite,
-		CapMbpsCombined:             capCombined,
+		ListenAddr:                   getEnv("LISTEN_ADDR", ":8080"),
+		AdminToken:                   getEnv("ADMIN_TOKEN", ""),
+		AdaptiveConcurrencyEnabled:   getEnv("ADAPTIVE_CONCURRENCY_ENABLED", "false") == "true",
+		AdaptiveConcurrencyMin:       parseIntEnv("ADAPTIVE_CONCURRENCY_MIN", 4),
+		AdaptiveConcurrencyMax:       parseIntEnv("ADAPTIVE_CONCURRENCY_MAX", 64),
+		AdaptiveConcurrencyTargetMs:  parseIntEnv("ADAPTIVE_CONCURRENCY_TARGET_MS", 200),
+		AdaptiveConcurrencyAcquireMs: parseIntEnv("ADAPTIVE_CONCURRENCY_ACQUIRE_TIMEOUT_MS", 500),
+		EnableTLS:                    getEnv("ENABLE_TLS", "false") == "true",
+		CertFile:                     getEnv("TLS_CERT_FILE", ""),
+		KeyFile:                      getEnv("TLS_KEY_FILE", ""),
+		AzureBackendType:             azureBackendType,
+		AzureAuth:                    azureAuth,
+		S3AccessKeyID:                getEnvRequired("S3_ACCESS_KEY"),
+		S3SecretAccessKey:            getEnvRequired("S3_SECRET_KEY"),
+		LogLevel:                     getEnv("LOG_LEVEL", "warn"),
+		LogFile:                      getEnv("LOG_FILE", ""),
+		LogMode:                      getEnv("LOG_MODE", "console"),
+		CacheEnabled:                 getEnv("CACHE_ENABLED", "false") == "true",
+		CachePath:                    getEnv("CACHE_PATH", "/tmp/azs3-proxy-cache"),
+		CacheMaxSize:                 cacheMaxSize,
+		CacheTTL:                     cacheTTL,
+		CapMbpsRead:                  capRead,
+		CapMbpsWrite:                 capWrite,
+		CapMbpsCombined:              capCombined,
 	}
 
 	// Validate all required configuration is present and valid
@@ -191,6 +193,9 @@ func (c *Config) Validate() error {
 		}
 		if c.AdaptiveConcurrencyTargetMs <= 0 {
 			return fmt.Errorf("ADAPTIVE_CONCURRENCY_TARGET_MS must be positive")
+		}
+		if c.AdaptiveConcurrencyAcquireMs <= 0 {
+			return fmt.Errorf("ADAPTIVE_CONCURRENCY_ACQUIRE_TIMEOUT_MS must be positive")
 		}
 	}
 

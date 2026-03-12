@@ -30,6 +30,14 @@ type ObjectVersion struct {
 	IsLatest  bool
 }
 
+// ObjectListItem holds the metadata returned for each object in list operations.
+type ObjectListItem struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
+	ETag         string
+}
+
 // ObjectInfo holds object data and metadata for S3 responses
 // (add more fields as needed for S3 compatibility)
 type ObjectInfo struct {
@@ -62,8 +70,8 @@ type StorageBackend interface {
 	// object's last modified time (UTC). If the object does not exist,
 	// exists will be false and size/lastModified will be zero values.
 	HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, size int64, lastModified time.Time, err error)
-	ListObjects(ctx context.Context, bucketName, prefix string) ([]string, error)
-	ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []string, nextContinuationToken string, err error)
+	ListObjects(ctx context.Context, bucketName, prefix string) ([]ObjectListItem, error)
+	ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []ObjectListItem, nextContinuationToken string, err error)
 
 	// Multipart upload operations
 	InitiateMultipartUpload(ctx context.Context, bucketName, objectKey string) (uploadID string, err error)
