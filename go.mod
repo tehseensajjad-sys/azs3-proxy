@@ -1,6 +1,6 @@
 module github.com/vibhansa-msft/azs3-proxy
 
-go 1.25.6
+go 1.26.1
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
