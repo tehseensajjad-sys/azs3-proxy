@@ -6,89 +6,51 @@
 [![Coverage](https://img.shields.io/badge/coverage-76.0%25-brightgreen)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/vibhansa-msft/azs3-proxy/blob/main/LICENSE)
 
-S3-compatible API gateway that translates S3 REST calls to Azure Blob Storage or Azure Files using Azure Go SDK. Enables S3 clients to work with Azure storage backends.
+S3-compatible API gateway that translates S3 REST calls to **Azure Blob Storage** or **Azure Files**. Drop-in replacement — migrate existing S3 applications to Azure with zero code changes.
 
-## Overview
+## What is azs3-proxy?
 
-**azs3-proxy** is a lightweight, production-ready proxy server that:
+A lightweight Go proxy that exposes an S3-compatible REST API (with SigV4 auth) and translates requests to Azure storage operations. Any application that speaks S3 — AWS CLI, boto3, Spark, MinIO client, VAST — can use Azure storage without code changes.
 
-- Exposes an S3-compatible REST API (with SigV4 auth)
-- Translates S3 requests to Azure Blob Storage or Azure Files operations
-- Allows S3 clients and applications to seamlessly work with Azure storage backends
-- Supports core S3 bucket and object operations (CRUD, listing, multipart upload)
-- Uses the latest Azure SDK for Go with optimized performance
+**Key capabilities:** Streaming I/O (no buffering), multipart uploads, object versioning, connection pooling, TLS, local object caching, OpenTelemetry observability.
 
-### Key Features
+## Supported S3 APIs
 
-- ✅ Core S3 API support (bucket & object operations, multipart, versioning)
-- ✅ AWS Signature Version 4 authentication
-- ✅ Multipart uploads for large objects
-- ✅ Object versioning support
-- ✅ CopyObject support (server-side copy)
-- ✅ ListObjectsV2 pagination (Blob: native markers; Files: offset-based paging)
-- ✅ Streaming support (no full object buffering)
-- ✅ Connection pooling & concurrency optimization
-- ✅ Client connection caching for improved performance
-- ✅ Graceful shutdown & resource cleanup
-- ✅ Structured logging with zap
-- ✅ Telemetry with OpenTelemetry (Prometheus & OTLP)
-- ✅ Easy Docker deployment
+| Category | Operations |
+|---|---|
+| **Bucket** | ListBuckets, CreateBucket, DeleteBucket, HeadBucket, GetBucketLocation |
+| **Object** | PutObject, GetObject, HeadObject, DeleteObject, CopyObject, ListObjects, ListObjectsV2 |
+| **Multipart** | CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload, ListParts, ListMultipartUploads |
+| **Versioning** | PutBucketVersioning, GetBucketVersioning, ListObjectVersions, GetObjectVersion, DeleteObjectVersion |
 
-## API Compatibility
+For the full compatibility matrix, see [COMPATIBILITY.md](COMPATIBILITY.md).
 
-For a detailed list of supported S3 operations and their Azure Blob Storage equivalents, please refer to the [API Compatibility Matrix](COMPATIBILITY.md).
+## Storage Backend Mapping
 
-## Supported S3 APIs (summary)
-
-- **Bucket operations**: ListBuckets, CreateBucket, DeleteBucket, HeadBucket.
-- **Object operations**: PutObject, GetObject, HeadObject, DeleteObject, CopyObject (same-backend copy), ListObjects, ListObjectsV2.
-- **Multipart uploads**: CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload, ListParts, ListMultipartUploads.
-- **Versioning**: EnableVersioning, GetBucketVersioning, GetObjectVersion, DeleteObjectVersion (Blob backend supports versions when enabled; Files backend stubs for compatibility only).
-- **Statistics & errors**: Standard S3 error mapping and basic stats endpoints used by tests.
-- **Not currently supported**: ACLs/Canned ACLs, bucket policies, CORS configuration, notifications/events, object tagging, replication, and S3 Select.
-
-## Telemetry
-
-For detailed information about metrics, logging, and observability configuration, please refer to the [Telemetry Documentation](TELEMETRY.md).
-
-## Use Cases
-
-- Migrate S3-dependent applications to Azure
-- Multi-cloud storage abstraction for S3 clients
-- Enable VAST, MinIO, or other S3-compatible tools to use Azure Blob Storage or Azure Files
-- Development & testing without AWS S3
-- Use Azure Files for file system semantics with S3 API compatibility
-- Hybrid storage scenarios with both blob and file backends
+| S3 Concept | Azure Blob (`AZURE_BACKEND_TYPE=blob`) | Azure Files (`AZURE_BACKEND_TYPE=file`) |
+|---|---|---|
+| Bucket | Blob Container | File Share |
+| Object | Block Blob | File (auto-creates directories) |
+| Multipart Upload | Staged blocks | Buffered file upload |
+| Versioning | Native blob versioning | Not supported |
 
 ## Quick Start
 
-### Prerequisites
+### Docker (recommended)
 
-- Go 1.26 or later (CI uses Go 1.26.0)
-- Azure storage account with connection string or account key
-- Docker (optional, for containerized deployment)
-
-### Installation
-
-#### Option 1: Docker (recommended)
-
-Pull the pre-built image from Docker Hub:
-
+Pull from Docker Hub:
 ```bash
 docker pull bhansalivikas/azs3-proxy:latest
 ```
 
 Or from GitHub Container Registry:
-
 ```bash
 docker pull ghcr.io/vibhansa-msft/azs3-proxy:latest
 ```
 
-Run with environment variables:
-
+Run the container:
 ```bash
-docker run -d --name azs3-proxy \
-  -p 8080:8080 \
+docker run -d -p 8080:8080 \
   -e AZURE_STORAGE_ACCOUNT=youraccount \
   -e AZURE_STORAGE_KEY=yourkey \
   -e S3_ACCESS_KEY=your-s3-access-key \
@@ -96,544 +58,200 @@ docker run -d --name azs3-proxy \
   bhansalivikas/azs3-proxy:latest
 ```
 
-#### Option 2: Build from source
+### From source
 
 ```bash
 git clone https://github.com/vibhansa-msft/azs3-proxy.git
 cd azs3-proxy
-go mod download
-go build -o bin/azs3-proxy ./cmd/proxy
+make build
+./azs3-proxy
 ```
 
-### Configuration
+The proxy listens on `http://localhost:8080` by default. See [Configuration Guide](CONFIGURATION.md) for all environment variables, CLI flags, and auth methods.
 
-Create a `.env` file or set environment variables. For the full configuration reference (server, auth, cache, telemetry), see [Configuration Guide](CONFIGURATION.md).
+## Migrating Existing S3 Applications
+
+The key advantage of azs3-proxy is that **existing S3 applications can migrate to Azure storage without any code changes**. There are multiple ways to point your application at the proxy:
+
+### Option 1: Environment Variable (zero code changes)
+
+AWS SDKs (boto3 >= 1.28.0, AWS CLI v2, AWS SDK for Go v2, etc.) support endpoint override via environment variables:
 
 ```bash
-# HTTP Server
-LISTEN_ADDR=:8080
+export AWS_ENDPOINT_URL_S3=http://localhost:8080
+export AWS_ACCESS_KEY_ID=your-s3-access-key
+export AWS_SECRET_ACCESS_KEY=your-s3-secret-key
+export AWS_DEFAULT_REGION=us-east-1
 
-# Azure Storage Backend Type (blob or file)
-AZURE_BACKEND_TYPE=blob  # Use "blob" for Azure Blob Storage or "file" for Azure Files
-
-# Azure Storage
-AZURE_STORAGE_ACCOUNT=youraccount
-AZURE_STORAGE_KEY=yourkey
-
-# S3 Authentication
-S3_ACCESS_KEY=AKIA1234567890ABCDEF
-S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
-
-# Logging & Telemetry
-LOG_LEVEL=info
-TELEMETRY_ENABLED=true
-OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
-OTEL_EXPORTER_OTLP_INSECURE=true
+# Run your existing application as-is
+python your_existing_app.py
 ```
 
-### Running
+### Option 2: AWS Config File (`~/.aws/config`)
 
+```ini
+[profile default]
+region = us-east-1
+services = azs3-proxy
+
+[services azs3-proxy]
+s3 =
+  endpoint_url = http://localhost:8080
+```
+
+### Option 3: Explicit endpoint in code
+
+**AWS CLI:**
 ```bash
-./bin/azs3-proxy
+aws s3 ls --endpoint-url http://localhost:8080
+aws s3 cp myfile.txt s3://mybucket/ --endpoint-url http://localhost:8080
 ```
 
-The proxy listens on `http://localhost:8080` by default.
-
-## Backend Storage Options
-
-The proxy supports two Azure storage backends, configurable via the `AZURE_BACKEND_TYPE` environment variable:
-
-### Azure Blob Storage (default)
-
-```bash
-export AZURE_BACKEND_TYPE=blob
-```
-
-**S3 to Azure Blob Storage mapping:**
-- S3 Bucket → Azure Blob Container
-- S3 Object → Azure Block Blob
-- Multipart Upload → Block Blob staged blocks
-- Object Versioning → Blob versioning (if enabled)
-
-**Best for:** Unstructured data, large files, object storage use cases
-
-### Azure Files
-
-```bash
-export AZURE_BACKEND_TYPE=file
-```
-
-**S3 to Azure Files mapping:**
-- S3 Bucket → Azure File Share
-- S3 Object → Azure File (with automatic directory creation)
-- Multipart Upload → Buffered file upload
-- Object paths with `/` → Nested directories in file share
-
-**Best for:** File system semantics, SMB compatibility, shared file storage
-
-**Authentication:** Azure Files backend currently supports AccountKey and SAS token authentication. For MSI, Service Principal, and other token-based authentication methods, please use the Azure Blob backend.
-
-**Note:** Azure Files does not support object versioning. Versioning operations will return appropriate errors when using the file backend.
-
-## Architecture
-
-### Project Structure
-
-```
-azs3-proxy/
-├── cmd/
-│   └── proxy/
-│       └── main.go              # Entry point
-├── internal/
-│   ├── config/                  # Configuration loading
-│   ├── server/                  # S3 API server setup
-│   ├── handler/                 # S3 HTTP handlers (bucket, object ops)
-│   ├── backend/                 # Storage backend abstraction
-│   │   ├── azureblob/           # Azure Blob implementation
-│   │   └── azurefile/           # Azure Files implementation
-│   ├── auth/                    # SigV4 verification
-│   └── models/                  # Data models & types
-├── .github/workflows/           # CI/CD pipelines
-├── go.mod                       # Dependencies
-└── README.md
-```
-
-### Key Components
-
-1. **HTTP/S3 Frontend** (`internal/handler/`)
-   - Chi router for request routing
-   - S3 API handlers for buckets and objects
-   - SigV4 middleware for authentication
-
-2. **Backend Abstraction** (`internal/backend/`)
-   - Clean interface for storage operations
-   - Azure Blob implementation
-   - Azure Files implementation
-   - Easy to extend for other backends
-
-3. **Auth Layer** (`internal/auth/`)
-   - AWS Signature Version 4 verification
-   - Access key/secret mapping
-
-4. **Models & Utilities** (`internal/models/`)
-   - S3 error code mapping (Azure → S3)
-   - S3 XML response serialization
-   - Error handling
-
-## Supported S3 Operations
-
-### Bucket Operations
-
-- `PUT /{bucket}` – Create bucket
-- `DELETE /{bucket}` – Delete bucket
-- `GET /` – List buckets
-- `GET /{bucket}` – List objects (v1 & v2)
-- `GET /{bucket}?location` – Bucket location
-
-### Object Operations
-
-- `PUT /{bucket}/{key}` – Upload object
-- `GET /{bucket}/{key}` – Download object
-- `HEAD /{bucket}/{key}` – Object metadata
-- `DELETE /{bucket}/{key}` – Delete object
-- `PUT /{bucket}/{key}?x-amz-copy-source=...` – Copy object
-
-### Multipart Upload
-
-- `POST /{bucket}/{key}?uploads` – Initiate
-- `PUT /{bucket}/{key}?partNumber=X&uploadId=...` – Upload part
-- `POST /{bucket}/{key}?uploadId=...` – Complete
-- `DELETE /{bucket}/{key}?uploadId=...` – Abort
-
-### Versioning
-
-- `PUT /{bucket}?versioning` – Enable versioning on bucket
-- `GET /{bucket}?versioning` – Get versioning status
-- `GET /{bucket}?versions` – List object versions
-- `GET /{bucket}/{key}?versionId=X` – Get specific version
-- `DELETE /{bucket}/{key}?versionId=X` – Delete specific version
-
-### Not Supported (v1)
-
-- ACLs, tagging, object encryption (SSE-S3, SSE-KMS)
-- Bucket policies, lifecycle rules
-- S3 Select, requester pays
-
-## Configuration Reference
-
-### Server Configuration
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `LISTEN_ADDR` | No | `:8080` | HTTP server listen address |
-| `LOG_LEVEL` | No | `warn` | Logging level (debug, info, warn, error, crit) |
-| `LOG_FILE` | No | – | Path to log file (empty for console only) |
-| `LOG_MODE` | No | `console` | Logging mode (console, file, both) |
-| `ENABLE_TLS` | No | `false` | Enable HTTPS/TLS support (true/false) |
-| `TLS_CERT_FILE` | Conditional | – | Path to TLS certificate file (required if ENABLE_TLS=true) |
-| `TLS_KEY_FILE` | Conditional | – | Path to TLS private key file (required if ENABLE_TLS=true) |
-
-### S3 Authentication
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `S3_ACCESS_KEY` | Yes | – | S3 access key ID for SigV4 authentication |
-| `S3_SECRET_KEY` | Yes | – | S3 secret access key for SigV4 authentication |
-
-### Azure Storage Backend Configuration
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `AZURE_BACKEND_TYPE` | No | `blob` | Azure storage backend type: `blob` (Azure Blob Storage) or `file` (Azure Files) |
-
-### Azure Storage Authentication
-
-Azure storage supports multiple authentication methods. Choose **one** of the following:
-
-#### Account Key Authentication (Recommended for simplicity)
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
-| `AZURE_STORAGE_KEY` | Yes | – | Storage account access key (for account key auth) |
-
-#### SAS Token Authentication
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
-| `AZURE_STORAGE_SAS_TOKEN` | Yes | – | Shared Access Signature token |
-
-#### Managed Identity (MSI) Authentication
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
-| `AZURE_USE_MSI` | Yes | – | Set to `true` to enable MSI authentication |
-| `AZURE_CLIENT_ID` | No | – | Client ID for user-assigned MSI (optional, uses system-assigned by default) |
-
-#### Service Principal Authentication
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
-| `AZURE_TENANT_ID` | Yes | – | Azure AD tenant ID |
-| `AZURE_CLIENT_ID` | Yes | – | Service principal client ID |
-| `AZURE_CLIENT_SECRET` | Yes | – | Service principal client secret |
-
-#### Federated Token Authentication (OpenID Connect)
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
-| `AZURE_CLIENT_ID` | Yes | – | Application client ID |
-| `AZURE_TENANT_ID` | Yes | – | Azure AD tenant ID |
-| `AZURE_FEDERATED_TOKEN_FILE` | Yes | – | Path to OIDC token file |
-
-#### Azure CLI Authentication
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `AZURE_STORAGE_ACCOUNT` | Yes | – | Azure storage account name |
-| `AZURE_USE_CLI_AUTH` | Yes | – | Set to `true` to use Azure CLI cached credentials |
-
-### Optional Azure Configuration
-
-| Env Variable | Required | Default | Description |
-|---|---|---|---|
-| `AZURE_STORAGE_URL` | No | – | Custom Azure storage URL (auto-generated from account name if not provided) |
-| `AZURE_SUBSCRIPTION_ID` | No | – | Azure subscription ID |
-| `AZURE_OBJECT_ID` | No | – | Service principal object ID |
-
-## Usage Examples
-
-### Using AWS CLI
-
-```bash
-export AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF
-export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
-
-# List buckets
-aws s3 ls \
-  --endpoint-url http://localhost:8080 \
-  --region us-east-1
-
-# Upload file
-aws s3 cp myfile.txt s3://mybucket/ \
-  --endpoint-url http://localhost:8080 \
-  --region us-east-1
-
-# Download file
-aws s3 cp s3://mybucket/myfile.txt ./downloaded.txt \
-  --endpoint-url http://localhost:8080 \
-  --region us-east-1
-```
-
-### Using Boto3 (Python)
-
+**Boto3 (Python):**
 ```python
 import boto3
-
-s3 = boto3.client(
-    's3',
+s3 = boto3.client('s3',
     endpoint_url='http://localhost:8080',
-    aws_access_key_id='AKIA1234567890ABCDEF',
-    aws_secret_access_key='wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
-    region_name='us-east-1'
-)
+    aws_access_key_id='your-s3-access-key',
+    aws_secret_access_key='your-s3-secret-key',
+    region_name='us-east-1')
 
-# List buckets
-response = s3.list_buckets()
-print(response['Buckets'])
-
-# Upload object
-s3.put_object(
-    Bucket='mybucket',
-    Key='myfile.txt',
-    Body=b'Hello, World!'
-)
-
-# Download object
-obj = s3.get_object(Bucket='mybucket', Key='myfile.txt')
-data = obj['Body'].read()
+s3.list_buckets()
+s3.put_object(Bucket='mybucket', Key='file.txt', Body=b'hello')
 ```
 
-### Using Azure Files Backend
+### Path-Style Addressing
 
-To use Azure Files instead of Azure Blob Storage:
+azs3-proxy uses **path-style** addressing (`http://host/bucket/key`). If your application defaults to virtual-hosted-style, configure path-style:
 
+```ini
+# ~/.aws/config
+[profile default]
+s3 =
+  addressing_style = path
+```
+
+### Endpoint Resolution Precedence
+
+1. Explicit `endpoint_url` in code
+2. Service-specific env var (`AWS_ENDPOINT_URL_S3`)
+3. Global env var (`AWS_ENDPOINT_URL`)
+4. Service-specific config file setting
+5. Global config file setting
+6. Default AWS endpoint
+
+## Configuration
+
+Create a `.env` file or set environment variables. CLI flags (e.g., `--addr`, `--log-level`, `--cap-mbps`) override env vars.
+
+**Minimal setup:**
 ```bash
-# Configure for Azure Files
-export AZURE_BACKEND_TYPE=file
 export AZURE_STORAGE_ACCOUNT=youraccount
 export AZURE_STORAGE_KEY=yourkey
-export S3_ACCESS_KEY=AKIA1234567890ABCDEF
-export S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
-
-# Start proxy
-./bin/azs3-proxy
+export S3_ACCESS_KEY=your-s3-access-key
+export S3_SECRET_KEY=your-s3-secret-key
+./azs3-proxy
 ```
 
-Then use S3 clients normally - the proxy will translate to Azure Files operations:
+**For Azure Blob Storage** (default): set `AZURE_BACKEND_TYPE=blob` (or omit — blob is the default). S3 buckets map to Blob Containers, objects to Block Blobs. All six Azure auth modes supported.
+
+**For Azure Files**: set `AZURE_BACKEND_TYPE=file`. S3 buckets map to File Shares, objects to Files. Only Account Key and SAS Token auth are supported.
+
+See **[Configuration Guide](CONFIGURATION.md)** for the complete reference — all CLI flags, environment variables, auth modes, cache, bandwidth caps, adaptive concurrency, and telemetry settings.
+
+## Build & Test
 
 ```bash
-# Create a "bucket" (creates an Azure File Share)
-aws s3 mb s3://myshare --endpoint-url http://localhost:8080
-
-# Upload a file (creates file in share with nested directories as needed)
-aws s3 cp myfile.txt s3://myshare/documents/myfile.txt \
-  --endpoint-url http://localhost:8080
-
-# List files (lists files in the share)
-aws s3 ls s3://myshare/documents/ --endpoint-url http://localhost:8080
+make build                 # Build binary
+make test                  # Run all unit tests (with race detector)
+make coverage              # Run tests with coverage report
+make lint                  # Run linter
+make docker-build          # Build Docker image
 ```
 
-### HTTPS/TLS Support
-
-To enable HTTPS, generate or provide SSL/TLS certificates and configure the proxy:
+### Integration & Compliance Tests
 
 ```bash
-# Generate self-signed certificate (for testing)
-openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
-
-# Set environment variables
-export ENABLE_TLS=true
-export TLS_CERT_FILE=/path/to/cert.pem
-export TLS_KEY_FILE=/path/to/key.pem
-
-# Start proxy (now listening on HTTPS)
-./bin/azs3-proxy
-```
-
-Then use HTTPS endpoint with S3 clients:
-
-```bash
-aws s3 ls \
-  --endpoint-url https://localhost:8080 \
-  --ca-bundle /path/to/cert.pem \
-  --region us-east-1
-```
-
-### Logging & Monitoring
-
-The proxy supports flexible logging with multiple output modes and levels:
-
-#### Logging Configuration
-
-```bash
-# Console logging only (default)
-export LOG_MODE=console
-export LOG_LEVEL=info
-
-# File logging only
-export LOG_MODE=file
-export LOG_FILE=/var/log/azs3-proxy.log
-export LOG_LEVEL=debug
-
-# Both console and file logging
-export LOG_MODE=both
-export LOG_FILE=/var/log/azs3-proxy.log
-export LOG_LEVEL=info
-```
-
-#### Log Levels
-
-- **debug**: Detailed debugging information, request/response details
-- **info**: General informational messages, successful operations
-- **warn**: Warning messages for potentially problematic situations
-- **error**: Error messages when operations fail
-- **crit**: Critical failures that may require immediate attention
-
-#### Log Output Format
-
-Logs are output in JSON format with the following fields:
-```json
-{
-  "[azs3-proxy 1234] {
-    "timestamp": "2025-12-05 14:30:45.123",
-    "level": "INFO",
-    "msg": "object uploaded successfully",
-    "caller": "handler/handler.go:195",
-    "bucket": "mybucket",
-    "key": "myfile.txt",
-    "content_length": 1024
-  }"
-}
-```
-
-Each log line includes:
-- **Program name and PID**: `[azs3-proxy 1234]` at the start of each line
-- **Timestamp**: ISO8601 format with millisecond precision
-- **Log level**: DEBUG, INFO, WARN, ERROR, FATAL
-- **Message**: The primary log message
-- **Caller**: File and line number where log originated
-- **Contextual fields**: Structured data related to the operation (bucket, key, error details, etc.)
-
-#### Dynamic Log Level Changes
-
-To change the log level while the proxy is running without restarting, modify the `LOG_LEVEL` environment variable and restart only the logging component (this feature is planned for future releases).
-
-## Development
-
-### Building
-
-```bash
-go build -o bin/azs3-proxy ./cmd/proxy
-```
-
-### Testing
-
-Run unit tests:
-
-```bash
-make test
-```
-
-Run integration/compliance tests (requires Azure credentials and the `integration` build tag):
-
-```bash
-export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=..."
+# Requires Azure credentials
 go test -tags=integration -v ./test/integration/...
 go test -tags=integration -v ./test/compliance/...
 ```
 
+## Benchmarking with WARP
 
-### Running Tests
+[MinIO WARP](https://github.com/minio/warp) is used for performance benchmarking. See [BENCHMARK.md](BENCHMARK.md) for detailed results.
 
-```bash
-# Run all unit tests (default)
-go test -v ./...
-
-# Run with coverage
-go test -v -cover ./...
-
-# Run specific package
-go test -v ./internal/handler
-
-# Run with race detector
-go test -v -race ./...
-
-# Generate coverage report
-go test -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
-```
-
-### Test Coverage
-
-For the latest coverage numbers, see the Codecov report and GitHub Actions runs.
-
-**Automated Testing:** Unit tests run automatically via GitHub Actions on every commit to `main`. Integration/compliance suites are opt-in and require Azure credentials plus the `integration` build tag.
-
-### Code Structure
-
-- **Config Layer**: `internal/config` – loads environment variables
-- **Server Layer**: `internal/server` – HTTP server initialization
-- **Handler Layer**: `internal/handler` – S3 request handling
-- **Backend Layer**: `internal/backend` – storage abstraction
-- **Auth Layer**: `internal/auth` – SigV4 validation
-- **Model Layer**: `internal/models` – data structures & serialization
-
-## Docker Deployment
-
-### Build Docker Image
+### Run the full benchmark suite
 
 ```bash
-docker build -t azs3-proxy:latest .
+make benchmark
 ```
 
-### Run Container
+This starts the proxy, runs all WARP tests across multiple concurrencies, and generates a report in `warp_report.md`.
+
+### Run individual WARP benchmarks
 
 ```bash
-docker run -p 8080:8080 \
-  -e AZURE_STORAGE_ACCOUNT=youraccount \
-  -e AZURE_STORAGE_KEY=yourkey \
-  -e S3_ACCESS_KEY=AKIA1234567890ABCDEF \
-  -e S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY \
-  azs3-proxy:latest
+# Install warp
+go install github.com/minio/warp@latest
+
+# GET benchmark (1 MiB objects, 16 concurrent)
+warp get --host localhost:8080 \
+  --access-key $S3_ACCESS_KEY --secret-key $S3_SECRET_KEY \
+  --obj.size 1MiB --concurrent 16 --duration 180s
+
+# PUT benchmark (10 MiB objects)
+warp put --host localhost:8080 \
+  --access-key $S3_ACCESS_KEY --secret-key $S3_SECRET_KEY \
+  --obj.size 10MiB --concurrent 16 --duration 180s
+
+# Mixed workload (45% GET, 45% PUT, 10% DELETE)
+warp mixed --host localhost:8080 \
+  --access-key $S3_ACCESS_KEY --secret-key $S3_SECRET_KEY \
+  --obj.size 1MiB --concurrent 16 --duration 180s
+
+# Multipart upload benchmark
+warp multipart-put --host localhost:8080 \
+  --access-key $S3_ACCESS_KEY --secret-key $S3_SECRET_KEY \
+  --obj.size 100MiB --part.size 10MiB --concurrent 8
+
+# Analyze results
+warp analyze put.csv.zst
 ```
 
-### Docker Compose
+### WARP YAML configs
 
-```yaml
-version: '3.8'
-services:
-  azs3-proxy:
-    image: azs3-proxy:latest
-    ports:
-      - "8080:8080"
-    environment:
-      LISTEN_ADDR: :8080
-      AZURE_STORAGE_ACCOUNT: youraccount
-      AZURE_STORAGE_KEY: yourkey
-      S3_ACCESS_KEY: AKIA1234567890ABCDEF
-      S3_SECRET_KEY: wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
-      LOG_LEVEL: info
+Pre-built WARP configs are in `test/benchmarking/`:
+
+```bash
+# Run a specific config
+warp run test/benchmarking/get-1MiB.yml \
+  -var Host="localhost:8080" \
+  -var AccessKey="$S3_ACCESS_KEY" \
+  -var SecretKey="$S3_SECRET_KEY" \
+  -var Region="us-east-1" \
+  -var Bucket="warp-bench" \
+  -var TLS="false" \
+  -var Concurrent="16" \
+  -var BenchData="get-1MiB.csv.zst"
 ```
 
-## Performance & Optimization
+Available configs: `get-1MiB.yml`, `get-10MiB.yml`, `get-100MiB.yml`, `get-2GiB.yml`, `put-1MiB.yml`, `put-10MiB.yml`, `put-100MiB.yml`, `put-2GiB.yml`, `mixed-1MiB.yml`, `small-128KiB.yml`.
 
-- Streaming uploads/downloads (no full-object buffering)
-- Connection pooling to Azure Blob Storage
-- Configurable timeouts and concurrency
-- Efficient SigV4 signature verification
-- Parallel multipart upload handling
-- Optional caching layer (future enhancement)
+## Documentation
+
+| Document | Description |
+|---|---|
+| [CONFIGURATION.md](CONFIGURATION.md) | Full config reference — env vars, CLI flags, auth methods, cache, telemetry |
+| [BENCHMARK.md](BENCHMARK.md) | Performance results and benchmark methodology |
+| [TELEMETRY.md](TELEMETRY.md) | OpenTelemetry metrics, tracing, and logging setup |
+| [COMPATIBILITY.md](COMPATIBILITY.md) | S3 API compatibility matrix |
 
 ## License
 
-MIT License – see [LICENSE](LICENSE) file for details.
-
-## Related Projects
-
-- [S3Proxy](https://github.com/gaul/s3proxy) – S3 gateway in Java (reference implementation)
-- [MinIO](https://github.com/minio/minio) – S3-compatible object storage
-- [AWS SDK for Go](https://github.com/aws/aws-sdk-go-v2) – AWS API client
-- [Azure SDK for Go](https://github.com/Azure/azure-sdk-for-go) – Azure API client
+MIT — see [LICENSE](LICENSE).
 
 ## Support
 
-For issues, questions, or suggestions:
-
-- Open an [issue](https://github.com/vibhansa-msft/azs3-proxy/issues)
-- Check existing [discussions](https://github.com/vibhansa-msft/azs3-proxy/discussions)
-- Review [contributing guide](CONTRIBUTING.md)
+- [Issues](https://github.com/vibhansa-msft/azs3-proxy/issues)
+- [Discussions](https://github.com/vibhansa-msft/azs3-proxy/discussions)

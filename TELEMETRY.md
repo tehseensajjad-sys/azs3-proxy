@@ -24,13 +24,13 @@ Attributes:
 - `method`: HTTP method (e.g., "GET", "PUT")
 - `error_type`: Error type when request fails (e.g., "AccessDenied", "NoSuchKey")
 
-### Azure Backend Metrics
-- `azure_requests_total` - Total requests sent to Azure Blob Storage (counter)
-- `azure_requests_errors_total` - Failed Azure Blob Storage requests (counter)
+### Backend Storage Metrics
+- `backend_requests_total` - Total requests sent to the Azure storage backend (counter)
+- `backend_requests_errors_total` - Failed backend storage requests (counter)
 
 Attributes:
-- `operation`: Azure operation name (e.g., "PutObject", "ListBuckets")
-- `error_type`: Azure error code (e.g., "BlobNotFound")
+- `operation`: Backend operation name (e.g., "PutObject", "ListBuckets")
+- `error_type`: Backend error code (e.g., "BlobNotFound", "ShareNotFound")
 
 ### Runtime Metrics (Go)
 Standard Go runtime metrics are exported automatically:
@@ -61,28 +61,19 @@ Attributes:
 
 ## Configuration
 
-Configure telemetry via environment variables. For a full project-wide configuration reference (server, auth, cache, telemetry), see [Configuration Guide](CONFIGURATION.md).
+Configure telemetry via environment variables. For the full project-wide configuration reference, see [Configuration Guide](CONFIGURATION.md).
 
-```bash
-# Enable/disable telemetry
-TELEMETRY_ENABLED=true                              # Default: true
-
-# Service information
-SERVICE_NAME=azs3-proxy                             # Default: azs3-proxy
-SERVICE_VERSION=1.0.0                               # Default: 1.0.0
-ENVIRONMENT=production                              # Default: development
-
-# Export configuration
-TELEMETRY_EXPORT_TYPE=otlp                        # Default: otlp
-TELEMETRY_EXPORT_INTERVAL=30s                       # Default: 30s
-
-# OTLP Configuration (OpenTelemetry Protocol)
-OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317          # Default: localhost:4317
-OTEL_EXPORTER_OTLP_INSECURE=true                    # Default: false (use TLS)
-
-# Advanced configuration
-TELEMETRY_LOG_LEVEL=info                            # Default: info
-```
+| Env Variable | Default | Description |
+|---|---|---|
+| `TELEMETRY_ENABLED` | `true` | Enable/disable OpenTelemetry |
+| `SERVICE_NAME` | `azs3-proxy` | OTEL service name resource attribute |
+| `SERVICE_VERSION` | `1.0.0` | OTEL service version resource attribute |
+| `ENVIRONMENT` | `development` | OTEL environment resource attribute |
+| `TELEMETRY_EXPORT_TYPE` | `otlp` | Exporter type |
+| `TELEMETRY_EXPORT_INTERVAL` | `30s` | Metric export interval |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint |
+| `OTEL_EXPORTER_OTLP_INSECURE` | `false` | Use plaintext gRPC (set `true` for non-TLS) |
+| `TELEMETRY_LOG_LEVEL` | `warn` | Log level for OTEL internal logging |
 
 ## OTLP Integration (OpenTelemetry Protocol)
 
@@ -156,7 +147,7 @@ Yes, once your metrics are in Azure Application Insights (Azure Monitor), you ca
     *   Add **Azure Monitor**.
     *   Select your Subscription and the Application Insights resource where metrics are being sent.
 4.  **Create Dashboards**:
-    *   You can now query metrics like `s3_requests_total` or `azure_requests_total`.
+    *   You can now query metrics like `s3_requests_total` or `backend_requests_total`.
     *   Since these are custom metrics, they will appear under the `azure.applicationinsights` namespace or as custom log-based metrics depending on ingestion.
 
 ## Usage Example
