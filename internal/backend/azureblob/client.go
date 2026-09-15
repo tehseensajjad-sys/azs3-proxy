@@ -294,6 +294,29 @@ func etagFromContentMD5(contentMD5 []byte) string {
 	return fmt.Sprintf("\"%x\"", contentMD5)
 }
 
+// isHNSDirectoryMarker reports whether a blob item is an ADLS Gen2
+// hierarchical-namespace directory placeholder rather than a real object.
+// On HNS-enabled storage accounts, creating a nested blob path implicitly
+// creates zero-length "directory" blobs for each path segment. These are
+// identified by Properties.ResourceType == "directory" (returned by the
+// List Blobs API without needing extra Include options), with a fallback
+// check for the legacy hdi_isfolder metadata key. S3 has no concept of
+// directories, so these must be filtered out of listings: exposing them
+// causes S3 clients (e.g. Iceberg's S3FileIO) to treat them as real objects
+// and fail when they try to read or delete a "file" that is actually a
+// directory marker.
+func isHNSDirectoryMarker(props *container.BlobProperties, metadata map[string]*string) bool {
+	if props != nil && props.ResourceType != nil && strings.EqualFold(*props.ResourceType, "directory") {
+		return true
+	}
+	for k, v := range metadata {
+		if v != nil && strings.EqualFold(k, "hdi_isfolder") && strings.EqualFold(*v, "true") {
+			return true
+		}
+	}
+	return false
+}
+
 func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (etag string, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "PutObject", err) }()
 
@@ -492,6 +515,9 @@ func (ab *AzureBlobBackend) ListObjectsV2(ctx context.Context, bucketName, prefi
 	if resp.Segment != nil && resp.Segment.BlobItems != nil {
 		for _, blobItem := range resp.Segment.BlobItems {
 			if blobItem.Name != nil {
+				if isHNSDirectoryMarker(blobItem.Properties, blobItem.Metadata) {
+					continue
+				}
 				item := backend.ObjectListItem{Key: *blobItem.Name}
 				if blobItem.Properties != nil {
 					if blobItem.Properties.ContentLength != nil {
@@ -901,6 +927,9 @@ func (ab *AzureBlobBackend) ListObjectVersions(ctx context.Context, bucketName, 
 		}
 
 		for _, blobItem := range page.Segment.BlobItems {
+			if isHNSDirectoryMarker(blobItem.Properties, blobItem.Metadata) {
+				continue
+			}
 			versionID := ""
 			if blobItem.VersionID != nil {
 				versionID = *blobItem.VersionID
