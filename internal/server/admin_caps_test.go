@@ -39,8 +39,8 @@ func (d *dummyBackend) GetObjectRange(context.Context, string, string, int64, in
 	return backend.ObjectInfo{}, nil
 }
 func (d *dummyBackend) DeleteObject(context.Context, string, string) error { return nil }
-func (d *dummyBackend) HeadObject(context.Context, string, string) (bool, int64, time.Time, error) {
-	return true, 0, time.Time{}, nil
+func (d *dummyBackend) HeadObject(context.Context, string, string) (bool, int64, time.Time, string, error) {
+	return true, 0, time.Time{}, "", nil
 }
 func (d *dummyBackend) ListObjects(context.Context, string, string) ([]backend.ObjectListItem, error) {
 	return nil, nil
@@ -96,8 +96,8 @@ func (storageOnlyBackend) GetObjectRange(context.Context, string, string, int64,
 	return backend.ObjectInfo{}, nil
 }
 func (storageOnlyBackend) DeleteObject(context.Context, string, string) error { return nil }
-func (storageOnlyBackend) HeadObject(context.Context, string, string) (bool, int64, time.Time, error) {
-	return true, 0, time.Time{}, nil
+func (storageOnlyBackend) HeadObject(context.Context, string, string) (bool, int64, time.Time, string, error) {
+	return true, 0, time.Time{}, "", nil
 }
 func (storageOnlyBackend) ListObjects(context.Context, string, string) ([]backend.ObjectListItem, error) {
 	return nil, nil

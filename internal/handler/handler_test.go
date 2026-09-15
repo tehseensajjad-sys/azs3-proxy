@@ -126,7 +126,7 @@ type MockBackend struct {
 	GetObjectFunc               func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error)
 	GetObjectRangeFunc          func(ctx context.Context, bucketName, objectKey string, offset, length int64) (backend.ObjectInfo, error)
 	DeleteObjectFunc            func(ctx context.Context, bucketName, objectKey string) error
-	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error)
+	HeadObjectFunc              func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, string, error)
 	ListObjectsFunc             func(ctx context.Context, bucketName, prefix string) ([]backend.ObjectListItem, error)
 	ListObjectsV2Func           func(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) ([]backend.ObjectListItem, string, error)
 	InitiateMultipartUploadFunc func(ctx context.Context, bucketName, objectKey string) (string, error)
@@ -237,11 +237,11 @@ func (m *MockBackend) DeleteObject(ctx context.Context, bucketName, objectKey st
 	return nil
 }
 
-func (m *MockBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
+func (m *MockBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, string, error) {
 	if m.HeadObjectFunc != nil {
 		return m.HeadObjectFunc(ctx, bucketName, objectKey)
 	}
-	return true, int64(len("test data")), time.Now(), nil
+	return true, int64(len("test data")), time.Now(), "", nil
 }
 
 func (m *MockBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]backend.ObjectListItem, error) {
@@ -733,8 +733,8 @@ func TestGetObjectHandler(t *testing.T) {
 
 func TestHeadObjectHandler(t *testing.T) {
 	mockBackend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
-			return true, int64(9), time.Now(), nil
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, string, error) {
+			return true, int64(9), time.Now(), "", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1513,8 +1513,8 @@ func TestDeleteObjectHandler_Error(t *testing.T) {
 // TestHeadObjectHandler_NotFound tests 404 behavior in HeadObject
 func TestHeadObjectHandler_NotFound(t *testing.T) {
 	mockBackend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
-			return false, 0, time.Time{}, nil
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, string, error) {
+			return false, 0, time.Time{}, "", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1736,8 +1736,8 @@ func TestDeleteObjectHandler_Success(t *testing.T) {
 // TestHeadObjectHandler_Success tests successful object existence check
 func TestHeadObjectHandler_Success(t *testing.T) {
 	mockBackend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
-			return true, int64(9), time.Now(), nil
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, string, error) {
+			return true, int64(9), time.Now(), "", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1950,8 +1950,8 @@ func TestHeadObjectHandler_WithCache(t *testing.T) {
 	defer func() { _ = cm.Close() }()
 
 	backend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
-			return true, int64(9), time.Now(), nil
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, string, error) {
+			return true, int64(9), time.Now(), "", nil
 		},
 	}
 
@@ -2128,9 +2128,9 @@ func TestHeadObjectHandler_CacheHit(t *testing.T) {
 	}
 
 	backend := &MockBackend{
-		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
+		HeadObjectFunc: func(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, string, error) {
 			t.Error("Backend HeadObject should not be called on cache hit")
-			return true, int64(14), time.Now(), nil
+			return true, int64(14), time.Now(), "", nil
 		},
 	}
 

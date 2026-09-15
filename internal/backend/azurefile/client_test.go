@@ -182,7 +182,7 @@ func TestAzureFileOperationsWithFakeTransport(t *testing.T) {
 	_, _ = af.PutObject(ctx, "bucket", "file", int64(len("data")), strings.NewReader("data"))
 	_, _ = af.CopyObject(ctx, "bucket", "file", "bucket", "file-copy")
 	_ = af.DeleteObject(ctx, "bucket", "file")
-	if _, _, _, err := af.HeadObject(ctx, "bucket", "file"); err != nil {
+	if _, _, _, _, err := af.HeadObject(ctx, "bucket", "file"); err != nil {
 		t.Logf("HeadObject returned error: %v", err)
 	}
 

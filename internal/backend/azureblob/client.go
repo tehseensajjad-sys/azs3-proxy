@@ -16,6 +16,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
@@ -282,6 +283,17 @@ func (ab *AzureBlobBackend) DeleteBucket(ctx context.Context, bucketName string)
 	return nil
 }
 
+// etagFromContentMD5 formats a stored Content-MD5 blob property as a quoted,
+// S3-style hex ETag. Returns "" if the property isn't set (e.g. objects
+// written before this proxy started persisting Content-MD5, or multipart
+// objects, which don't have a single-content-hash ETag in real S3 either).
+func etagFromContentMD5(contentMD5 []byte) string {
+	if len(contentMD5) != md5.Size {
+		return ""
+	}
+	return fmt.Sprintf("\"%x\"", contentMD5)
+}
+
 func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (etag string, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "PutObject", err) }()
 
@@ -313,16 +325,21 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 			return "", fmt.Errorf("failed to read body into memory: %w", err)
 		}
 
-		if _, err := blobClient.UploadBuffer(ctx, buf, nil); err != nil {
-			return "", fmt.Errorf("upload buffer failed: %w", err)
-		}
-
 		// S3 ETags are the lowercase-hex MD5 of the object body (for single-part
 		// PUTs). Azure's own ETag is an opaque version token, not a content hash,
 		// and isn't valid hex, so S3 clients that hex-decode it (e.g. the AWS SDK's
-		// checksum validator) would fail. Compute the real MD5 instead.
+		// checksum validator) would fail. Compute the real MD5 instead, and persist
+		// it as the blob's Content-MD5 property so later GetObject/HeadObject/List
+		// calls can also return the real content-hash ETag.
 		sum := md5.Sum(buf) //nolint:gosec // MD5 required for S3 ETag compatibility, not security
 		etag = fmt.Sprintf("\"%x\"", sum)
+
+		uploadOptions := &blockblob.UploadBufferOptions{
+			HTTPHeaders: &blob.HTTPHeaders{BlobContentMD5: sum[:]},
+		}
+		if _, err := blobClient.UploadBuffer(ctx, buf, uploadOptions); err != nil {
+			return "", fmt.Errorf("upload buffer failed: %w", err)
+		}
 
 		if pooled {
 			// Zero the portion we wrote to avoid retaining sensitive data across requests.
@@ -357,7 +374,20 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 	if err != nil {
 		return "", fmt.Errorf("upload stream failed: %w", err)
 	}
-	return fmt.Sprintf("\"%x\"", hasher.Sum(nil)), nil
+	sum := hasher.Sum(nil)
+
+	// Persist the real content MD5 as the blob's Content-MD5 property (only
+	// known after the stream is fully consumed) so later GetObject/HeadObject/
+	// List calls can also return the real content-hash ETag. Best-effort: if
+	// this fails, the upload itself already succeeded, so we still return the
+	// correct etag for this response; only later reads would fall back to the
+	// placeholder ETag.
+	if _, headerErr := blobClient.SetHTTPHeaders(ctx, blob.HTTPHeaders{BlobContentMD5: sum}, nil); headerErr != nil {
+		ab.logger.Warn("failed to persist content-md5 after streamed upload",
+			zap.String("bucket", bucketName), zap.String("key", objectKey), zap.Error(headerErr))
+	}
+
+	return fmt.Sprintf("\"%x\"", sum), nil
 }
 
 func (ab *AzureBlobBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (etag string, err error) {
@@ -398,14 +428,14 @@ func (ab *AzureBlobBackend) DeleteObject(ctx context.Context, bucketName, object
 	return nil
 }
 
-func (ab *AzureBlobBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, size int64, lastModified time.Time, err error) {
+func (ab *AzureBlobBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, size int64, lastModified time.Time, etag string, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "HeadObject", err) }()
 
 	// Defensive: empty objectKey indicates a bucket-level HEAD which should
 	// be handled by HeadBucketHandler; treat empty key as not found here to
 	// avoid making an invalid Azure SDK call that results in 400 InvalidUri.
 	if strings.TrimSpace(objectKey) == "" {
-		return false, 0, time.Time{}, nil
+		return false, 0, time.Time{}, "", nil
 	}
 
 	props, err := ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey).GetProperties(ctx, nil)
@@ -413,9 +443,9 @@ func (ab *AzureBlobBackend) HeadObject(ctx context.Context, bucketName, objectKe
 		// Map Azure SDK responses that indicate the blob doesn't exist
 		errStr := err.Error()
 		if strings.Contains(errStr, "404") || strings.Contains(errStr, "BlobNotFound") || strings.Contains(errStr, "InvalidUri") {
-			return false, 0, time.Time{}, nil
+			return false, 0, time.Time{}, "", nil
 		}
-		return false, 0, time.Time{}, fmt.Errorf("get blob properties failed: %w", err)
+		return false, 0, time.Time{}, "", fmt.Errorf("get blob properties failed: %w", err)
 	}
 
 	var sz int64
@@ -426,7 +456,7 @@ func (ab *AzureBlobBackend) HeadObject(ctx context.Context, bucketName, objectKe
 	if props.LastModified != nil {
 		lm = props.LastModified.UTC()
 	}
-	return true, sz, lm, nil
+	return true, sz, lm, etagFromContentMD5(props.ContentMD5), nil
 }
 
 func (ab *AzureBlobBackend) ListObjects(ctx context.Context, bucketName, prefix string) (objects []backend.ObjectListItem, err error) {
@@ -460,19 +490,20 @@ func (ab *AzureBlobBackend) ListObjectsV2(ctx context.Context, bucketName, prefi
 	}
 
 	if resp.Segment != nil && resp.Segment.BlobItems != nil {
-		for _, blob := range resp.Segment.BlobItems {
-			if blob.Name != nil {
-				item := backend.ObjectListItem{Key: *blob.Name}
-				if blob.Properties != nil {
-					if blob.Properties.ContentLength != nil {
-						item.Size = *blob.Properties.ContentLength
+		for _, blobItem := range resp.Segment.BlobItems {
+			if blobItem.Name != nil {
+				item := backend.ObjectListItem{Key: *blobItem.Name}
+				if blobItem.Properties != nil {
+					if blobItem.Properties.ContentLength != nil {
+						item.Size = *blobItem.Properties.ContentLength
 					}
-					if blob.Properties.LastModified != nil {
-						item.LastModified = blob.Properties.LastModified.UTC()
+					if blobItem.Properties.LastModified != nil {
+						item.LastModified = blobItem.Properties.LastModified.UTC()
 					}
-					if blob.Properties.ETag != nil {
-						item.ETag = string(*blob.Properties.ETag)
-					}
+					// Real S3 ETags are a content-hash; Azure's native ETag is an
+					// opaque version token, so use the persisted Content-MD5
+					// property instead (empty if not set, e.g. legacy objects).
+					item.ETag = etagFromContentMD5(blobItem.Properties.ContentMD5)
 				}
 				objects = append(objects, item)
 			}
@@ -503,6 +534,7 @@ func (ab *AzureBlobBackend) GetObject(ctx context.Context, bucketName, objectKey
 	if props.ContentLength != nil {
 		info.Size = *props.ContentLength
 	}
+	info.ETag = etagFromContentMD5(props.ContentMD5)
 
 	// Use DownloadStream for all files.
 	// For small files (e.g. 1MB), DownloadBuffer adds significant memory allocation overhead (runtime.mallocgc)
@@ -580,6 +612,7 @@ func (ab *AzureBlobBackend) GetObjectRange(ctx context.Context, bucketName, obje
 		info.LastModified = time.Now().UTC()
 	}
 	info.Size = length
+	info.ETag = etagFromContentMD5(props.ContentMD5)
 	return info, nil
 }
 
@@ -875,7 +908,7 @@ func (ab *AzureBlobBackend) ListObjectVersions(ctx context.Context, bucketName, 
 			version := backend.ObjectVersion{
 				Key:       *blobItem.Name,
 				VersionID: versionID,
-				ETag:      string(*blobItem.Properties.ETag),
+				ETag:      etagFromContentMD5(blobItem.Properties.ContentMD5),
 				Size:      *blobItem.Properties.ContentLength,
 				Modified:  blobItem.Properties.LastModified.Format(time.RFC3339),
 				IsLatest:  true, // Mark as latest in versioned listing
@@ -910,6 +943,7 @@ func (ab *AzureBlobBackend) GetObjectVersion(ctx context.Context, bucketName, ob
 	} else {
 		info.LastModified = time.Now().UTC()
 	}
+	info.ETag = etagFromContentMD5(props.ContentMD5)
 
 	return info, nil
 }

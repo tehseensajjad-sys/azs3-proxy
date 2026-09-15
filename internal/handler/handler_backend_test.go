@@ -42,11 +42,11 @@ func (f *fakeBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBuc
 func (f *fakeBackend) DeleteObject(ctx context.Context, bucketName, objectKey string) error {
 	return nil
 }
-func (f *fakeBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
+func (f *fakeBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, string, error) {
 	if f.getObjectErr != nil {
-		return false, 0, time.Time{}, f.getObjectErr
+		return false, 0, time.Time{}, "", f.getObjectErr
 	}
-	return true, int64(len(f.getObjectData)), time.Now(), nil
+	return true, int64(len(f.getObjectData)), time.Now(), "", nil
 }
 func (f *fakeBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]backend.ObjectListItem, error) {
 	return nil, nil

@@ -297,6 +297,16 @@ func (af *AzureFileBackend) DeleteBucket(ctx context.Context, bucketName string)
 
 // PutObject uploads a file to Azure Files.
 // Creates parent directories as needed.
+// etagFromContentMD5 formats a stored Content-MD5 file property as a quoted,
+// S3-style hex ETag. Returns "" if the property isn't set (e.g. objects
+// written before this proxy started persisting Content-MD5).
+func etagFromContentMD5(contentMD5 []byte) string {
+	if len(contentMD5) != md5.Size {
+		return ""
+	}
+	return fmt.Sprintf("\"%x\"", contentMD5)
+}
+
 func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (etag string, err error) {
 	defer func() { af.recordAzureRequest(ctx, "PutObject", err) }()
 
@@ -310,12 +320,6 @@ func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey
 	// Get file client
 	fileClient := shareClient.NewRootDirectoryClient().NewFileClient(objectKey)
 
-	// Create the file with the specified size
-	_, err = fileClient.Create(ctx, size, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create file: %w", err)
-	}
-
 	useLimiter := af.limiter != nil
 
 	// Upload data to the file
@@ -323,24 +327,33 @@ func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey
 	if !useLimiter && size > 0 && size <= memoryUploadThreshold {
 		// Read entire body into memory
 		buf := make([]byte, size)
-		_, err := io.ReadFull(data, buf)
-		if err != nil {
+		if _, err := io.ReadFull(data, buf); err != nil {
 			return "", fmt.Errorf("failed to read body into memory: %w", err)
-		}
-
-		// Upload buffer to file
-		err = fileClient.UploadBuffer(ctx, buf, nil)
-		if err != nil {
-			return "", fmt.Errorf("upload buffer failed: %w", err)
 		}
 
 		// S3 ETags are the lowercase-hex MD5 of the object body (for single-part
 		// PUTs). Azure Files doesn't return a content-hash ETag, and S3 clients
 		// that hex-decode the ETag for integrity validation (e.g. the AWS SDK's
-		// checksum validator) would fail on a non-hex value, so compute the
-		// real MD5 instead.
+		// checksum validator) would fail on a non-hex value, so compute the real
+		// MD5 instead, and persist it as the file's Content-MD5 property so
+		// later GetObject/HeadObject/List calls can also return it.
 		sum := md5.Sum(buf) //nolint:gosec // MD5 required for S3 ETag compatibility, not security
-		return fmt.Sprintf("\"%x\"", sum), nil
+		etag = fmt.Sprintf("\"%x\"", sum)
+
+		if _, err := fileClient.Create(ctx, size, &file.CreateOptions{ContentMD5: sum[:]}); err != nil {
+			return "", fmt.Errorf("failed to create file: %w", err)
+		}
+
+		if err := fileClient.UploadBuffer(ctx, buf, nil); err != nil {
+			return "", fmt.Errorf("upload buffer failed: %w", err)
+		}
+
+		return etag, nil
+	}
+
+	// Create the file with the specified size
+	if _, err := fileClient.Create(ctx, size, nil); err != nil {
+		return "", fmt.Errorf("failed to create file: %w", err)
 	}
 
 	if useLimiter {
@@ -353,8 +366,22 @@ func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey
 	if err != nil {
 		return "", fmt.Errorf("upload stream failed: %w", err)
 	}
+	sum := hasher.Sum(nil)
 
-	return fmt.Sprintf("\"%x\"", hasher.Sum(nil)), nil
+	// Persist the real content MD5 as the file's Content-MD5 property (only
+	// known after the stream is fully consumed) so later GetObject/HeadObject/
+	// List calls can also return the real content-hash ETag. Best-effort: if
+	// this fails, the upload itself already succeeded, so we still return the
+	// correct etag for this response; only later reads would fall back to the
+	// placeholder ETag.
+	if _, headerErr := fileClient.SetHTTPHeaders(ctx, &file.SetHTTPHeadersOptions{
+		HTTPHeaders: &file.HTTPHeaders{ContentMD5: sum},
+	}); headerErr != nil {
+		af.logger.Warn("failed to persist content-md5 after streamed upload",
+			zap.String("bucket", bucketName), zap.String("key", objectKey), zap.Error(headerErr))
+	}
+
+	return fmt.Sprintf("\"%x\"", sum), nil
 }
 
 // CopyObject copies a file from source to destination within Azure Files.
@@ -396,12 +423,12 @@ func (af *AzureFileBackend) DeleteObject(ctx context.Context, bucketName, object
 }
 
 // HeadObject checks if a file exists and returns its metadata.
-func (af *AzureFileBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, size int64, lastModified time.Time, err error) {
+func (af *AzureFileBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, size int64, lastModified time.Time, etag string, err error) {
 	defer func() { af.recordAzureRequest(ctx, "HeadObject", err) }()
 
 	// Defensive: empty objectKey indicates a bucket-level HEAD
 	if strings.TrimSpace(objectKey) == "" {
-		return false, 0, time.Time{}, nil
+		return false, 0, time.Time{}, "", nil
 	}
 
 	shareClient := af.getShareClient(bucketName)
@@ -411,9 +438,9 @@ func (af *AzureFileBackend) HeadObject(ctx context.Context, bucketName, objectKe
 	if err != nil {
 		// Map Azure SDK responses that indicate the file doesn't exist
 		if fileerror.HasCode(err, fileerror.ResourceNotFound) || fileerror.HasCode(err, fileerror.ShareNotFound) {
-			return false, 0, time.Time{}, nil
+			return false, 0, time.Time{}, "", nil
 		}
-		return false, 0, time.Time{}, fmt.Errorf("get file properties failed: %w", err)
+		return false, 0, time.Time{}, "", fmt.Errorf("get file properties failed: %w", err)
 	}
 
 	var sz int64
@@ -424,7 +451,7 @@ func (af *AzureFileBackend) HeadObject(ctx context.Context, bucketName, objectKe
 	if props.LastModified != nil {
 		lm = props.LastModified.UTC()
 	}
-	return true, sz, lm, nil
+	return true, sz, lm, etagFromContentMD5(props.ContentMD5), nil
 }
 
 // listAllObjects returns all files in a share with optional prefix filtering.
@@ -554,6 +581,7 @@ func (af *AzureFileBackend) GetObject(ctx context.Context, bucketName, objectKey
 	if props.ContentLength != nil {
 		info.Size = *props.ContentLength
 	}
+	info.ETag = etagFromContentMD5(props.ContentMD5)
 
 	// Download file
 	// For all files, use DownloadStream for efficient streaming
@@ -586,6 +614,7 @@ func (af *AzureFileBackend) GetObjectRange(ctx context.Context, bucketName, obje
 	} else {
 		info.LastModified = time.Now().UTC()
 	}
+	info.ETag = etagFromContentMD5(props.ContentMD5)
 
 	if info.Size <= 0 {
 		return info, fmt.Errorf("object has zero length")
@@ -897,7 +926,7 @@ func (af *AzureFileBackend) ListObjectVersions(ctx context.Context, bucketName, 
 	var versions []interface{}
 	for _, obj := range objects {
 		// Get object metadata
-		exists, size, lastModified, err := af.HeadObject(ctx, bucketName, obj.Key)
+		exists, size, lastModified, etag, err := af.HeadObject(ctx, bucketName, obj.Key)
 		if err != nil || !exists {
 			continue
 		}
@@ -905,7 +934,7 @@ func (af *AzureFileBackend) ListObjectVersions(ctx context.Context, bucketName, 
 		version := backend.ObjectVersion{
 			Key:       obj.Key,
 			VersionID: "null", // Azure Files doesn't support versioning
-			ETag:      fmt.Sprintf("\"%s\"", obj.Key),
+			ETag:      etag,
 			Size:      size,
 			Modified:  lastModified.Format(time.RFC3339),
 			IsLatest:  true,

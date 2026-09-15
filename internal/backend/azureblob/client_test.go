@@ -103,7 +103,7 @@ func TestAzureBlobBackendOperations(t *testing.T) {
 	_ = backend.Close()
 	_ = backend.CreateBucket(ctx, "bucket")
 	_ = backend.DeleteBucket(ctx, "bucket")
-	_, _, _, _ = backend.HeadObject(ctx, "bucket", "key")
+	_, _, _, _, _ = backend.HeadObject(ctx, "bucket", "key")
 	_ = backend.DeleteObject(ctx, "bucket", "key")
 	testData := []byte("test-data")
 	_, _ = backend.PutObject(ctx, "bucket", "key", int64(len(testData)), bytes.NewReader(testData))

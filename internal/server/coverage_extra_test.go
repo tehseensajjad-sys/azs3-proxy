@@ -49,8 +49,8 @@ func (stubBackend) GetObjectRange(ctx context.Context, bucketName, objectKey str
 	return backend.ObjectInfo{Body: io.NopCloser(strings.NewReader(data[offset:end])), LastModified: time.Now(), Size: int64(len(data))}, nil
 }
 func (stubBackend) DeleteObject(ctx context.Context, bucketName, objectKey string) error { return nil }
-func (stubBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, error) {
-	return true, 1, time.Now(), nil
+func (stubBackend) HeadObject(ctx context.Context, bucketName, objectKey string) (bool, int64, time.Time, string, error) {
+	return true, 1, time.Now(), "", nil
 }
 func (stubBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]backend.ObjectListItem, error) {
 	return []backend.ObjectListItem{{Key: "obj"}}, nil

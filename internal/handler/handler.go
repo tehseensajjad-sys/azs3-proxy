@@ -329,7 +329,7 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 				}
 				etag := item.ETag
 				if etag == "" {
-					etag = "\"0\""
+					etag = placeholderETag
 				}
 				objList = append(objList, models.Object{
 					Key:          item.Key,
@@ -350,7 +350,7 @@ func (h *S3Handler) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request)
 			}
 			etag := item.ETag
 			if etag == "" {
-				etag = "\"0\""
+				etag = placeholderETag
 			}
 			objList[i] = models.Object{
 				Key:          item.Key,
@@ -615,7 +615,11 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Write headers before writing body
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("ETag", placeholderETag)
+	getEtag := objInfo.ETag
+	if getEtag == "" {
+		getEtag = placeholderETag
+	}
+	w.Header().Set("ETag", getEtag)
 	if objInfo.Size > 0 {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", objInfo.Size))
 	}
@@ -777,9 +781,12 @@ func (h *S3Handler) handleRangeGetWithCache(w http.ResponseWriter, r *http.Reque
 	const blockSize int64 = 8 * 1024 * 1024
 
 	// Discover object size via HEAD to parse ranges correctly
-	exists, size, lastModified, err := h.backend.HeadObject(r.Context(), bucket, key)
+	exists, size, lastModified, etag, err := h.backend.HeadObject(r.Context(), bucket, key)
 	if err != nil || !exists || size <= 0 {
 		return false // fall back to full GET path
+	}
+	if etag == "" {
+		etag = placeholderETag
 	}
 
 	start, end, err := parseSingleRange(r.Header.Get("Range"), size)
@@ -839,7 +846,7 @@ func (h *S3Handler) handleRangeGetWithCache(w http.ResponseWriter, r *http.Reque
 			payloadEnd = int64(len(buf))
 		}
 		payload := buf[offset:payloadEnd]
-		writeRangeResponse(w, payload, start, start+int64(len(payload))-1, size, lastModified)
+		writeRangeResponse(w, payload, start, start+int64(len(payload))-1, size, lastModified, etag)
 		h.stats.RecordGetObject(true)
 		if h.telMgr != nil {
 			h.telMgr.RecordS3Request(r.Context(), "GetObject", true, "")
@@ -884,7 +891,7 @@ func (h *S3Handler) handleRangeGetWithCache(w http.ResponseWriter, r *http.Reque
 		payloadEnd = int64(len(data))
 	}
 	payload := data[offset:payloadEnd]
-	writeRangeResponse(w, payload, start, start+int64(len(payload))-1, size, lastModified)
+	writeRangeResponse(w, payload, start, start+int64(len(payload))-1, size, lastModified, etag)
 	h.stats.RecordGetObject(true)
 	if h.telMgr != nil {
 		h.telMgr.RecordS3Request(r.Context(), "GetObject", true, "")
@@ -893,9 +900,9 @@ func (h *S3Handler) handleRangeGetWithCache(w http.ResponseWriter, r *http.Reque
 	return true
 }
 
-func writeRangeResponse(w http.ResponseWriter, payload []byte, start, end, totalSize int64, lastModified time.Time) {
+func writeRangeResponse(w http.ResponseWriter, payload []byte, start, end, totalSize int64, lastModified time.Time, etag string) {
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("ETag", placeholderETag)
+	w.Header().Set("ETag", etag)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, totalSize))
@@ -982,7 +989,7 @@ func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	exists, size, lastModified, err := h.backend.HeadObject(r.Context(), bucket, key)
+	exists, size, lastModified, etag, err := h.backend.HeadObject(r.Context(), bucket, key)
 	if err != nil {
 		h.logger.Error("failed to head object", zap.Error(err), zap.String("bucket", bucket), zap.String("key", key))
 		h.stats.RecordHeadObject(false)
@@ -1020,7 +1027,10 @@ func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 	if !lastModified.IsZero() {
 		w.Header().Set("Last-Modified", lastModified.UTC().Format(http.TimeFormat))
 	}
-	w.Header().Set("ETag", placeholderETag)
+	if etag == "" {
+		etag = placeholderETag
+	}
+	w.Header().Set("ETag", etag)
 	w.WriteHeader(http.StatusOK)
 	h.stats.RecordHeadObject(true)
 	if h.telMgr != nil {
@@ -1567,12 +1577,16 @@ func (h *S3Handler) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Req
 	var versionList []models.ObjectVersionXML
 	for _, v := range versions {
 		objVersion := v.(backend.ObjectVersion)
+		etag := objVersion.ETag
+		if etag == "" {
+			etag = placeholderETag
+		}
 		versionList = append(versionList, models.ObjectVersionXML{
 			Key:          objVersion.Key,
 			VersionID:    objVersion.VersionID,
 			IsLatest:     objVersion.IsLatest,
 			LastModified: objVersion.Modified,
-			ETag:         objVersion.ETag,
+			ETag:         etag,
 			Size:         objVersion.Size,
 			StorageClass: "STANDARD",
 		})
@@ -1670,12 +1684,13 @@ func (h *S3Handler) DeleteObjectVersionHandler(w http.ResponseWriter, r *http.Re
 // Deletes multiple objects in a single request.
 func (h *S3Handler) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
-	h.logger.Debug("DeleteObjects request", zap.String("bucket", bucket))
 
 	// Parse request body
 	var deleteReq models.DeleteObjectsRequest
 	if err := xml.NewDecoder(r.Body).Decode(&deleteReq); err != nil {
-		h.logger.Error("failed to parse delete objects request", zap.Error(err))
+		h.logger.Error("failed to parse delete objects request",
+			zap.String("bucket", bucket),
+			zap.Error(err))
 		s3Err := &models.S3Error{
 			Code:    models.MalformedXML,
 			Message: "The XML you provided was not well-formed or did not validate against our published schema",
@@ -1684,11 +1699,28 @@ func (h *S3Handler) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	h.logger.Info("DeleteObjects request",
+		zap.String("bucket", bucket),
+		zap.Int("object_count", len(deleteReq.Objects)),
+		zap.Bool("quiet", deleteReq.Quiet))
+
 	result := models.DeleteResult{}
+	skipped := 0
 
 	// Process each object deletion
-	for _, obj := range deleteReq.Objects {
+	for i, obj := range deleteReq.Objects {
 		if obj.Key == "" {
+			skipped++
+			// An empty key after XML decode means the request contained an
+			// <Object> entry we couldn't extract a key from (e.g. malformed
+			// or unexpectedly-encoded XML). This key is silently absent from
+			// both <Deleted> and <Error> in the response, which can make an
+			// S3 client treat it as an unconfirmed/failed deletion even
+			// though our server never attempted it.
+			h.logger.Warn("skipping delete objects entry with empty key",
+				zap.String("bucket", bucket),
+				zap.Int("index", i),
+				zap.String("version_id", obj.VersionID))
 			continue
 		}
 		var err error
@@ -1702,6 +1734,7 @@ func (h *S3Handler) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request)
 			h.logger.Warn("failed to delete object in batch",
 				zap.String("bucket", bucket),
 				zap.String("key", obj.Key),
+				zap.String("version_id", obj.VersionID),
 				zap.Error(err))
 
 			result.Error = append(result.Error, models.ErrorResult{
@@ -1711,6 +1744,11 @@ func (h *S3Handler) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request)
 				Message:   err.Error(),
 			})
 		} else {
+			h.logger.Debug("deleted object in batch",
+				zap.String("bucket", bucket),
+				zap.String("key", obj.Key),
+				zap.String("version_id", obj.VersionID))
+
 			if !deleteReq.Quiet {
 				result.Deleted = append(result.Deleted, models.DeletedObject{
 					Key:       obj.Key,
@@ -1724,6 +1762,18 @@ func (h *S3Handler) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request)
 				_ = h.cacheManager.InvalidateObject(cacheKey)
 			}
 		}
+	}
+
+	if skipped > 0 || len(result.Error) > 0 {
+		h.logger.Warn("DeleteObjects batch completed with issues",
+			zap.String("bucket", bucket),
+			zap.Int("requested", len(deleteReq.Objects)),
+			zap.Int("skipped", skipped),
+			zap.Int("errors", len(result.Error)))
+	} else {
+		h.logger.Info("DeleteObjects batch completed",
+			zap.String("bucket", bucket),
+			zap.Int("requested", len(deleteReq.Objects)))
 	}
 
 	h.stats.RecordDeleteObject(true)

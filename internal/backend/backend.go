@@ -44,7 +44,11 @@ type ObjectInfo struct {
 	Body         io.ReadCloser
 	LastModified time.Time
 	Size         int64
-	// Add more fields as needed (ETag, ContentType, etc.)
+	// ETag is the real S3-style content-hash ETag (quoted hex MD5), if the
+	// backend has one available. Empty if unavailable (e.g. legacy objects
+	// written before the backend started persisting a content hash), in
+	// which case callers should fall back to a placeholder ETag.
+	ETag string
 }
 
 // StorageBackend defines the interface for storage backend implementations
@@ -70,10 +74,12 @@ type StorageBackend interface {
 	GetObjectRange(ctx context.Context, bucketName, objectKey string, offset, length int64) (ObjectInfo, error)
 	DeleteObject(ctx context.Context, bucketName, objectKey string) error
 	// HeadObject returns whether the object exists. When exists is true,
-	// size contains the object size in bytes and lastModified contains the
-	// object's last modified time (UTC). If the object does not exist,
-	// exists will be false and size/lastModified will be zero values.
-	HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, size int64, lastModified time.Time, err error)
+	// size contains the object size in bytes, lastModified contains the
+	// object's last modified time (UTC), and etag contains the real S3-style
+	// content-hash ETag if available (empty otherwise). If the object does
+	// not exist, exists will be false and size/lastModified/etag will be
+	// zero values.
+	HeadObject(ctx context.Context, bucketName, objectKey string) (exists bool, size int64, lastModified time.Time, etag string, err error)
 	ListObjects(ctx context.Context, bucketName, prefix string) ([]ObjectListItem, error)
 	ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken string, maxResults int32) (objects []ObjectListItem, nextContinuationToken string, err error)
 
