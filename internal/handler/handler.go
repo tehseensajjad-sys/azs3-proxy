@@ -24,6 +24,14 @@ import (
 	"github.com/vibhansa-msft/azs3-proxy/internal/telemetry"
 )
 
+// placeholderETag is used when the backend does not supply a real ETag.
+// It must be a valid, even-length hex string (shaped like an MD5 digest):
+// some S3 clients (e.g. the AWS SDK's checksum validator) hex-decode the
+// ETag header, and an odd-length or otherwise invalid value causes them
+// to fail with errors like "Input is expected to be encoded in multiple
+// of 2 bytes".
+const placeholderETag = "\"d41d8cd98f00b204e9800998ecf8427e\""
+
 // S3Handler handles all S3 API requests and converts them to backend storage operations.
 // It acts as a bridge between S3 API semantics and the underlying storage backend.
 // It includes optional local caching support for frequently accessed objects.
@@ -401,6 +409,7 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var err error
+	var etag string
 
 	if copySource != "" {
 		// Handle CopyObject
@@ -426,7 +435,7 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		srcBucket, srcKey := parts[0], parts[1]
 
-		err = h.backend.CopyObject(r.Context(), srcBucket, srcKey, bucket, key)
+		etag, err = h.backend.CopyObject(r.Context(), srcBucket, srcKey, bucket, key)
 	} else {
 		// Optimization: Wrap requests body in a buffered reader to minimize read syscalls from the network.
 		// Use a large buffer (1MB) to match the write path optimization.
@@ -449,7 +458,7 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 		cw := &countingWriter{}
 		teeReader := io.TeeReader(reader, cw)
-		err = h.backend.PutObject(r.Context(), bucket, key, finalSize, teeReader)
+		etag, err = h.backend.PutObject(r.Context(), bucket, key, finalSize, teeReader)
 		// Log only when debug is enabled to avoid per-object overhead in high-QPS runs.
 		if h.logger.Core().Enabled(zap.DebugLevel) {
 			h.logger.Debug("putobject bytes read by backend",
@@ -507,17 +516,21 @@ func (h *S3Handler) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		h.telMgr.RecordS3Request(r.Context(), "PutObject", true, "")
 	}
 
+	if etag == "" {
+		etag = placeholderETag
+	}
+
 	if copySource != "" {
 		resp := models.CopyObjectResult{
 			LastModified: time.Now().UTC().Format(time.RFC3339),
-			ETag:         "\"0\"", // Placeholder ETag
+			ETag:         etag,
 		}
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
 		xmlData, _ := xml.Marshal(resp)
 		_, _ = w.Write(xmlData)
 	} else {
-		w.Header().Set("ETag", "\"0\"")
+		w.Header().Set("ETag", etag)
 		w.WriteHeader(http.StatusOK)
 	}
 }
@@ -560,7 +573,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 			data, err := os.ReadFile(cachedFilePath)
 			if err == nil {
 				w.Header().Set("Content-Type", "application/octet-stream")
-				w.Header().Set("ETag", "\"0\"")
+				w.Header().Set("ETag", placeholderETag)
 				w.Header().Set("X-Cache-Hit", "true")
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write(data)
@@ -602,7 +615,7 @@ func (h *S3Handler) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Write headers before writing body
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("ETag", "\"0\"")
+	w.Header().Set("ETag", placeholderETag)
 	if objInfo.Size > 0 {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", objInfo.Size))
 	}
@@ -882,7 +895,7 @@ func (h *S3Handler) handleRangeGetWithCache(w http.ResponseWriter, r *http.Reque
 
 func writeRangeResponse(w http.ResponseWriter, payload []byte, start, end, totalSize int64, lastModified time.Time) {
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("ETag", "\"0\"")
+	w.Header().Set("ETag", placeholderETag)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, totalSize))
@@ -961,7 +974,7 @@ func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 				w.Header().Set("Content-Type", "application/octet-stream")
 				w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
-				w.Header().Set("ETag", "\"0\"")
+				w.Header().Set("ETag", placeholderETag)
 				w.Header().Set("X-Cache-Hit", "true")
 				w.WriteHeader(http.StatusOK)
 				return
@@ -1007,7 +1020,7 @@ func (h *S3Handler) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 	if !lastModified.IsZero() {
 		w.Header().Set("Last-Modified", lastModified.UTC().Format(http.TimeFormat))
 	}
-	w.Header().Set("ETag", "\"0\"")
+	w.Header().Set("ETag", placeholderETag)
 	w.WriteHeader(http.StatusOK)
 	h.stats.RecordHeadObject(true)
 	if h.telMgr != nil {

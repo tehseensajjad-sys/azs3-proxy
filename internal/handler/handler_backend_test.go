@@ -31,13 +31,13 @@ func (f *fakeBackend) HeadBucket(ctx context.Context, bucketName string) (bool, 
 }
 func (f *fakeBackend) CreateBucket(ctx context.Context, bucketName string) error { return nil }
 func (f *fakeBackend) DeleteBucket(ctx context.Context, bucketName string) error { return nil }
-func (f *fakeBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
+func (f *fakeBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (string, error) {
 	// Drain the reader to simulate upload
 	_, _ = io.Copy(io.Discard, data)
-	return f.putObjectErr
+	return "\"fakeetag\"", f.putObjectErr
 }
-func (f *fakeBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error {
-	return nil
+func (f *fakeBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (string, error) {
+	return "\"fakeetag\"", nil
 }
 func (f *fakeBackend) DeleteObject(ctx context.Context, bucketName, objectKey string) error {
 	return nil

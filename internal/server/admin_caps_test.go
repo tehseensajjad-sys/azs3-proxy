@@ -22,12 +22,16 @@ type dummyBackend struct{ last [3]float64 }
 
 func (d *dummyBackend) UpdateCaps(r, w, c float64) { d.last = [3]float64{r, w, c} }
 
-func (d *dummyBackend) ListBuckets(context.Context) ([]string, error)                     { return nil, nil }
-func (d *dummyBackend) CreateBucket(context.Context, string) error                        { return nil }
-func (d *dummyBackend) DeleteBucket(context.Context, string) error                        { return nil }
-func (d *dummyBackend) HeadBucket(context.Context, string) (bool, error)                  { return true, nil }
-func (d *dummyBackend) PutObject(context.Context, string, string, int64, io.Reader) error { return nil }
-func (d *dummyBackend) CopyObject(context.Context, string, string, string, string) error  { return nil }
+func (d *dummyBackend) ListBuckets(context.Context) ([]string, error)    { return nil, nil }
+func (d *dummyBackend) CreateBucket(context.Context, string) error       { return nil }
+func (d *dummyBackend) DeleteBucket(context.Context, string) error       { return nil }
+func (d *dummyBackend) HeadBucket(context.Context, string) (bool, error) { return true, nil }
+func (d *dummyBackend) PutObject(context.Context, string, string, int64, io.Reader) (string, error) {
+	return "", nil
+}
+func (d *dummyBackend) CopyObject(context.Context, string, string, string, string) (string, error) {
+	return "", nil
+}
 func (d *dummyBackend) GetObject(context.Context, string, string) (backend.ObjectInfo, error) {
 	return backend.ObjectInfo{}, nil
 }
@@ -79,11 +83,11 @@ func (storageOnlyBackend) ListBuckets(context.Context) ([]string, error)    { re
 func (storageOnlyBackend) CreateBucket(context.Context, string) error       { return nil }
 func (storageOnlyBackend) DeleteBucket(context.Context, string) error       { return nil }
 func (storageOnlyBackend) HeadBucket(context.Context, string) (bool, error) { return true, nil }
-func (storageOnlyBackend) PutObject(context.Context, string, string, int64, io.Reader) error {
-	return nil
+func (storageOnlyBackend) PutObject(context.Context, string, string, int64, io.Reader) (string, error) {
+	return "", nil
 }
-func (storageOnlyBackend) CopyObject(context.Context, string, string, string, string) error {
-	return nil
+func (storageOnlyBackend) CopyObject(context.Context, string, string, string, string) (string, error) {
+	return "", nil
 }
 func (storageOnlyBackend) GetObject(context.Context, string, string) (backend.ObjectInfo, error) {
 	return backend.ObjectInfo{}, nil

@@ -121,8 +121,8 @@ type MockBackend struct {
 	ListBucketsFunc             func(ctx context.Context) ([]string, error)
 	CreateBucketFunc            func(ctx context.Context, bucketName string) error
 	DeleteBucketFunc            func(ctx context.Context, bucketName string) error
-	PutObjectFunc               func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error
-	CopyObjectFunc              func(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error
+	PutObjectFunc               func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (string, error)
+	CopyObjectFunc              func(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (string, error)
 	GetObjectFunc               func(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error)
 	GetObjectRangeFunc          func(ctx context.Context, bucketName, objectKey string, offset, length int64) (backend.ObjectInfo, error)
 	DeleteObjectFunc            func(ctx context.Context, bucketName, objectKey string) error
@@ -179,18 +179,18 @@ func (m *MockBackend) DeleteBucket(ctx context.Context, bucketName string) error
 	return nil
 }
 
-func (m *MockBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
+func (m *MockBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (string, error) {
 	if m.PutObjectFunc != nil {
 		return m.PutObjectFunc(ctx, bucketName, objectKey, size, data)
 	}
-	return nil
+	return "\"mocketag\"", nil
 }
 
-func (m *MockBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error {
+func (m *MockBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (string, error) {
 	if m.CopyObjectFunc != nil {
 		return m.CopyObjectFunc(ctx, srcBucket, srcKey, destBucket, destKey)
 	}
-	return nil
+	return "\"mocketag\"", nil
 }
 
 func (m *MockBackend) GetObject(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
@@ -688,8 +688,8 @@ func TestListObjectsV2Handler_InvalidMaxKeys(t *testing.T) {
 
 func TestPutObjectHandler(t *testing.T) {
 	mockBackend := &MockBackend{
-		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
-			return nil
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (string, error) {
+			return "\"etag\"", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1466,8 +1466,8 @@ func TestGetObjectHandler_Error(t *testing.T) {
 // TestPutObjectHandler_Error tests error handling in PutObject
 func TestPutObjectHandler_Error(t *testing.T) {
 	mockBackend := &MockBackend{
-		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
-			return errors.New("upload failed")
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (string, error) {
+			return "", errors.New("upload failed")
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1786,8 +1786,8 @@ func TestGetObjectHandler_Success(t *testing.T) {
 // TestPutObjectHandler_Success tests successful object upload
 func TestPutObjectHandler_Success(t *testing.T) {
 	mockBackend := &MockBackend{
-		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
-			return nil
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (string, error) {
+			return "\"etag\"", nil
 		},
 	}
 	logger, _ := zap.NewDevelopment()
@@ -1982,8 +1982,8 @@ func TestPutObjectHandler_WithCache(t *testing.T) {
 	defer func() { _ = cm.Close() }()
 
 	backend := &MockBackend{
-		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
-			return nil
+		PutObjectFunc: func(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (string, error) {
+			return "\"etag\"", nil
 		},
 	}
 
@@ -2009,14 +2009,14 @@ func TestPutObjectHandler_CopyObject(t *testing.T) {
 	handler := NewS3Handler(mockBackend, logger)
 
 	t.Run("successful copy", func(t *testing.T) {
-		mockBackend.CopyObjectFunc = func(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error {
+		mockBackend.CopyObjectFunc = func(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (string, error) {
 			if srcBucket != "source-bucket" || srcKey != "source-key" {
-				return errors.New("unexpected source")
+				return "", errors.New("unexpected source")
 			}
 			if destBucket != "dest-bucket" || destKey != "dest-key" {
-				return errors.New("unexpected destination")
+				return "", errors.New("unexpected destination")
 			}
-			return nil
+			return "\"etag\"", nil
 		}
 
 		req := httptest.NewRequest("PUT", "/dest-bucket/dest-key", nil)

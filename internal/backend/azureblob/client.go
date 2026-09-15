@@ -3,11 +3,13 @@ package azureblob
 import (
 	"bytes"
 	"context"
+	"crypto/md5" //nolint:gosec // used for S3 ETag compatibility, not security
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -53,14 +55,21 @@ type Options struct {
 // Azure Blob Storage uses a staging blocks approach: individual parts are uploaded as blocks,
 // then combined using PutBlockList to create the final blob.
 type MultipartUploadMetadata struct {
-	UploadID        string            // Unique ID for this multipart upload
-	BucketName      string            // Container name in Azure
-	ObjectKey       string            // Blob name in Azure
-	BlockIDs        []string          // Ordered list of block IDs (corresponding to part numbers)
-	PartETagMap     map[int]string    // Maps part number to block ID (etag equivalent)
-	Initiated       time.Time         // When the multipart upload was initiated
-	BlockBlobClient *blockblob.Client // Client for block blob operations
-	Mutex           sync.Mutex        // Mutex to protect BlockIDs and PartETagMap
+	UploadID   string // Unique ID for this multipart upload
+	BucketName string // Container name in Azure
+	ObjectKey  string // Blob name in Azure
+	// BlockIDByPart and PartMD5ByPart are keyed by part number rather than
+	// appended in upload-call order: parts can be staged concurrently and out
+	// of order, so we must reassemble them in ascending part-number order at
+	// commit time to avoid corrupting the final blob's byte layout. Keying by
+	// part number also makes re-uploading the same part number (which S3
+	// allows) correctly replace the earlier attempt instead of duplicating it.
+	BlockIDByPart   map[int]string         // part number -> staged Azure block ID
+	PartMD5ByPart   map[int][md5.Size]byte // part number -> raw MD5 digest of that part
+	PartETagMap     map[int]string         // part number -> real MD5-based ETag (quoted hex)
+	Initiated       time.Time              // When the multipart upload was initiated
+	BlockBlobClient *blockblob.Client      // Client for block blob operations
+	Mutex           sync.Mutex             // Mutex to protect the maps above
 }
 
 // NewAzureBlobBackend creates an Azure Blob backend using a connection string.
@@ -273,7 +282,7 @@ func (ab *AzureBlobBackend) DeleteBucket(ctx context.Context, bucketName string)
 	return nil
 }
 
-func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (err error) {
+func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (etag string, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "PutObject", err) }()
 
 	blobClient := ab.getContainerClient(bucketName).NewBlockBlobClient(objectKey)
@@ -301,12 +310,19 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 		}
 
 		if _, err := io.ReadFull(data, buf); err != nil {
-			return fmt.Errorf("failed to read body into memory: %w", err)
+			return "", fmt.Errorf("failed to read body into memory: %w", err)
 		}
 
 		if _, err := blobClient.UploadBuffer(ctx, buf, nil); err != nil {
-			return fmt.Errorf("upload buffer failed: %w", err)
+			return "", fmt.Errorf("upload buffer failed: %w", err)
 		}
+
+		// S3 ETags are the lowercase-hex MD5 of the object body (for single-part
+		// PUTs). Azure's own ETag is an opaque version token, not a content hash,
+		// and isn't valid hex, so S3 clients that hex-decode it (e.g. the AWS SDK's
+		// checksum validator) would fail. Compute the real MD5 instead.
+		sum := md5.Sum(buf) //nolint:gosec // MD5 required for S3 ETag compatibility, not security
+		etag = fmt.Sprintf("\"%x\"", sum)
 
 		if pooled {
 			// Zero the portion we wrote to avoid retaining sensitive data across requests.
@@ -315,7 +331,7 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 			}
 		}
 
-		return nil
+		return etag, nil
 	}
 
 	if useLimiter {
@@ -336,14 +352,15 @@ func (ab *AzureBlobBackend) PutObject(ctx context.Context, bucketName, objectKey
 		Concurrency: concurrency,
 	}
 
-	_, err = blobClient.UploadStream(ctx, data, options)
+	hasher := md5.New() //nolint:gosec // MD5 required for S3 ETag compatibility, not security
+	_, err = blobClient.UploadStream(ctx, io.TeeReader(data, hasher), options)
 	if err != nil {
-		return fmt.Errorf("upload stream failed: %w", err)
+		return "", fmt.Errorf("upload stream failed: %w", err)
 	}
-	return nil
+	return fmt.Sprintf("\"%x\"", hasher.Sum(nil)), nil
 }
 
-func (ab *AzureBlobBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (err error) {
+func (ab *AzureBlobBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (etag string, err error) {
 	defer func() { ab.recordAzureRequest(ctx, "CopyObject", err) }()
 
 	// Naive implementation: Download from source and upload to destination.
@@ -354,17 +371,17 @@ func (ab *AzureBlobBackend) CopyObject(ctx context.Context, srcBucket, srcKey, d
 	// 1. Get source object stream
 	srcInfo, err := ab.GetObject(ctx, srcBucket, srcKey)
 	if err != nil {
-		return fmt.Errorf("failed to open source object for copy: %w", err)
+		return "", fmt.Errorf("failed to open source object for copy: %w", err)
 	}
 	defer func() { _ = srcInfo.Body.Close() }()
 
 	// 2. Put to destination
-	err = ab.PutObject(ctx, destBucket, destKey, srcInfo.Size, srcInfo.Body)
+	etag, err = ab.PutObject(ctx, destBucket, destKey, srcInfo.Size, srcInfo.Body)
 	if err != nil {
-		return fmt.Errorf("failed to upload destination object for copy: %w", err)
+		return "", fmt.Errorf("failed to upload destination object for copy: %w", err)
 	}
 
-	return nil
+	return etag, nil
 }
 
 func (ab *AzureBlobBackend) DeleteObject(ctx context.Context, bucketName, objectKey string) (err error) {
@@ -580,7 +597,8 @@ func (ab *AzureBlobBackend) InitiateMultipartUpload(ctx context.Context, bucketN
 		UploadID:        uploadID,
 		BucketName:      bucketName,
 		ObjectKey:       objectKey,
-		BlockIDs:        []string{},
+		BlockIDByPart:   make(map[int]string),
+		PartMD5ByPart:   make(map[int][md5.Size]byte),
 		PartETagMap:     make(map[int]string),
 		Initiated:       time.Now(),
 		BlockBlobClient: blockBlobClient,
@@ -609,6 +627,7 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 	blockID := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%010d", partNumber)))
 
 	var reader io.ReadSeekCloser
+	var partMD5 [md5.Size]byte
 
 	// If size is known and reasonable, read into memory to create a seeker.
 	// This avoids io.ReadAll growing the slice dynamically.
@@ -622,6 +641,7 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 		if err != nil {
 			return "", fmt.Errorf("failed to read part body: %w", err)
 		}
+		partMD5 = md5.Sum(buf) //nolint:gosec // MD5 required for S3 ETag compatibility, not security
 		reader = &backendcommon.ReadSeekCloser{Reader: bytes.NewReader(buf)}
 	} else {
 		// Fallback for unknown size or huge parts.
@@ -636,6 +656,7 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 		if err != nil {
 			return "", fmt.Errorf("failed to read part data: %w", err)
 		}
+		partMD5 = md5.Sum(partData) //nolint:gosec // MD5 required for S3 ETag compatibility, not security
 		reader = &backendcommon.ReadSeekCloser{Reader: bytes.NewReader(partData)}
 	}
 
@@ -647,13 +668,18 @@ func (ab *AzureBlobBackend) UploadPart(ctx context.Context, bucketName, objectKe
 		return "", fmt.Errorf("failed to stage block: %w", err)
 	}
 
-	// Update upload metadata with block ID and part etag
-	// We use the per-upload mutex to protect the map and slice
+	// Update upload metadata with block ID and part etag, keyed by part
+	// number so concurrent/out-of-order/re-uploaded parts stay correct.
+	// We use the per-upload mutex to protect the maps.
 	upload.Mutex.Lock()
 	defer upload.Mutex.Unlock()
 
-	upload.BlockIDs = append(upload.BlockIDs, blockID)
-	etag = fmt.Sprintf("\"%s\"", blockID)
+	upload.BlockIDByPart[partNumber] = blockID
+	upload.PartMD5ByPart[partNumber] = partMD5
+	// Real S3 part ETags are the hex MD5 of the part body; return that instead
+	// of the block ID so S3 clients that validate part checksums don't choke
+	// on a non-hex value.
+	etag = fmt.Sprintf("\"%x\"", partMD5)
 	upload.PartETagMap[partNumber] = etag
 
 	return etag, nil
@@ -675,18 +701,32 @@ func (ab *AzureBlobBackend) CompleteMultipartUpload(ctx context.Context, bucketN
 		return "", fmt.Errorf("upload ID does not match bucket/key")
 	}
 
-	// Use the BlockIDs in the order they were uploaded, as requested
+	// Parts can be staged concurrently and out of order, so we must sort by
+	// part number here to rebuild the correct byte layout before committing.
 	// We hold the lock during commit to ensure consistency, but we MUST release it
 	// before acquiring multipartUploadsMutex to delete the upload, to avoid deadlock.
 	upload.Mutex.Lock()
-	if len(upload.BlockIDs) == 0 {
+	if len(upload.BlockIDByPart) == 0 {
 		upload.Mutex.Unlock()
 		return "", fmt.Errorf("no parts uploaded")
 	}
 
-	// Finalize the multipart upload by committing the staged blocks
-	// We use upload.BlockIDs directly.
-	_, err = upload.BlockBlobClient.CommitBlockList(ctx, upload.BlockIDs, nil)
+	partNumbers := make([]int, 0, len(upload.BlockIDByPart))
+	for partNumber := range upload.BlockIDByPart {
+		partNumbers = append(partNumbers, partNumber)
+	}
+	sort.Ints(partNumbers)
+
+	blockIDs := make([]string, 0, len(partNumbers))
+	partMD5s := make([][md5.Size]byte, 0, len(partNumbers))
+	for _, partNumber := range partNumbers {
+		blockIDs = append(blockIDs, upload.BlockIDByPart[partNumber])
+		partMD5s = append(partMD5s, upload.PartMD5ByPart[partNumber])
+	}
+
+	// Finalize the multipart upload by committing the staged blocks in
+	// ascending part-number order.
+	_, err = upload.BlockBlobClient.CommitBlockList(ctx, blockIDs, nil)
 	upload.Mutex.Unlock()
 
 	if err != nil {
@@ -698,12 +738,17 @@ func (ab *AzureBlobBackend) CompleteMultipartUpload(ctx context.Context, bucketN
 	defer ab.multipartUploadsMutex.Unlock()
 	delete(ab.multipartUploads, uploadID)
 
-	// Return ETag (using the first block ID as a proxy for now, or Azure's response if we had it)
-	// Azure CommitBlockList returns an ETag, but we aren't capturing it from the SDK call above.
-	// The SDK's CommitBlockList returns (BlockBlobCommitBlockListResponse, error).
-	// We are ignoring the response. Let's just return a dummy ETag or the one we constructed.
-	// Ideally we should capture the response.
-	return fmt.Sprintf("\"%s\"", upload.UploadID), nil
+	// Real S3 multipart ETags are the MD5 of the concatenated per-part MD5
+	// digests, followed by "-<part count>". The dash tells S3 clients this
+	// isn't a plain content MD5, so they skip hex-decoding it for integrity
+	// validation (which a composite digest can't satisfy anyway - this
+	// matches real S3 behavior for multipart uploads).
+	digests := make([]byte, 0, len(partMD5s)*md5.Size)
+	for _, d := range partMD5s {
+		digests = append(digests, d[:]...)
+	}
+	compositeSum := md5.Sum(digests) //nolint:gosec // MD5 required for S3 ETag compatibility, not security
+	return fmt.Sprintf("\"%x-%d\"", compositeSum, len(partMD5s)), nil
 }
 
 // AbortMultipartUpload aborts an ongoing multipart upload
@@ -738,26 +783,25 @@ func (ab *AzureBlobBackend) ListParts(ctx context.Context, bucketName, objectKey
 		return nil, fmt.Errorf("upload ID does not match bucket/key")
 	}
 
-	// Use BlockIDs to list parts in upload order
 	upload.Mutex.Lock()
 	defer upload.Mutex.Unlock()
 
+	partNumbers := make([]int, 0, len(upload.BlockIDByPart))
+	for partNumber := range upload.BlockIDByPart {
+		partNumbers = append(partNumbers, partNumber)
+	}
+	sort.Ints(partNumbers)
+
 	var parts []interface{}
-	for _, blockID := range upload.BlockIDs {
-		// Decode blockID to get part number
-		decoded, err := base64.StdEncoding.DecodeString(blockID)
-		var partNum int
-		if err == nil {
-			// Try to parse the part number from the block ID
-			// Format is "%010d"
-			if _, scanErr := fmt.Sscanf(string(decoded), "%d", &partNum); scanErr != nil {
-				ab.logger.Debug("failed to parse part number", zap.Error(scanErr))
-			}
+	for _, partNum := range partNumbers {
+		etag := upload.PartETagMap[partNum]
+		if etag == "" {
+			etag = fmt.Sprintf("\"%x\"", upload.PartMD5ByPart[partNum])
 		}
 
 		parts = append(parts, map[string]interface{}{
 			"PartNumber": partNum,
-			"ETag":       fmt.Sprintf("\"%s\"", blockID),
+			"ETag":       etag,
 			"Size":       int64(0), // Size is not tracked in current implementation
 		})
 	}

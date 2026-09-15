@@ -57,8 +57,12 @@ type StorageBackend interface {
 	HeadBucket(ctx context.Context, bucketName string) (bool, error)
 
 	// Object operations
-	PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error
-	CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error
+	// PutObject returns the real content-hash ETag (S3-style, quoted hex MD5)
+	// for the uploaded object.
+	PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (etag string, err error)
+	// CopyObject returns the real content-hash ETag (S3-style, quoted hex MD5)
+	// of the copied object.
+	CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (etag string, err error)
 	GetObject(ctx context.Context, bucketName, objectKey string) (ObjectInfo, error)
 	// GetObjectRange returns a byte range [offset, offset+length-1] for the object.
 	// length must be >0. Implementations should clamp to object size and return the

@@ -3,6 +3,7 @@ package azurefile
 import (
 	"bytes"
 	"context"
+	"crypto/md5" //nolint:gosec // used for S3 ETag compatibility, not security
 	"fmt"
 	"io"
 	"path"
@@ -296,14 +297,14 @@ func (af *AzureFileBackend) DeleteBucket(ctx context.Context, bucketName string)
 
 // PutObject uploads a file to Azure Files.
 // Creates parent directories as needed.
-func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (err error) {
+func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (etag string, err error) {
 	defer func() { af.recordAzureRequest(ctx, "PutObject", err) }()
 
 	shareClient := af.getShareClient(bucketName)
 
 	// Create parent directories if needed
 	if err := af.createParentDirectories(ctx, shareClient, objectKey); err != nil {
-		return fmt.Errorf("failed to create parent directories: %w", err)
+		return "", fmt.Errorf("failed to create parent directories: %w", err)
 	}
 
 	// Get file client
@@ -312,7 +313,7 @@ func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey
 	// Create the file with the specified size
 	_, err = fileClient.Create(ctx, size, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
+		return "", fmt.Errorf("failed to create file: %w", err)
 	}
 
 	useLimiter := af.limiter != nil
@@ -324,15 +325,22 @@ func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey
 		buf := make([]byte, size)
 		_, err := io.ReadFull(data, buf)
 		if err != nil {
-			return fmt.Errorf("failed to read body into memory: %w", err)
+			return "", fmt.Errorf("failed to read body into memory: %w", err)
 		}
 
 		// Upload buffer to file
 		err = fileClient.UploadBuffer(ctx, buf, nil)
 		if err != nil {
-			return fmt.Errorf("upload buffer failed: %w", err)
+			return "", fmt.Errorf("upload buffer failed: %w", err)
 		}
-		return nil
+
+		// S3 ETags are the lowercase-hex MD5 of the object body (for single-part
+		// PUTs). Azure Files doesn't return a content-hash ETag, and S3 clients
+		// that hex-decode the ETag for integrity validation (e.g. the AWS SDK's
+		// checksum validator) would fail on a non-hex value, so compute the
+		// real MD5 instead.
+		sum := md5.Sum(buf) //nolint:gosec // MD5 required for S3 ETag compatibility, not security
+		return fmt.Sprintf("\"%x\"", sum), nil
 	}
 
 	if useLimiter {
@@ -340,32 +348,33 @@ func (af *AzureFileBackend) PutObject(ctx context.Context, bucketName, objectKey
 	}
 
 	// For larger files or when limiter is enabled, use UploadStream
-	err = fileClient.UploadStream(ctx, data, nil)
+	hasher := md5.New() //nolint:gosec // MD5 required for S3 ETag compatibility, not security
+	err = fileClient.UploadStream(ctx, io.TeeReader(data, hasher), nil)
 	if err != nil {
-		return fmt.Errorf("upload stream failed: %w", err)
+		return "", fmt.Errorf("upload stream failed: %w", err)
 	}
 
-	return nil
+	return fmt.Sprintf("\"%x\"", hasher.Sum(nil)), nil
 }
 
 // CopyObject copies a file from source to destination within Azure Files.
-func (af *AzureFileBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (err error) {
+func (af *AzureFileBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (etag string, err error) {
 	defer func() { af.recordAzureRequest(ctx, "CopyObject", err) }()
 
 	// Get source object
 	srcInfo, err := af.GetObject(ctx, srcBucket, srcKey)
 	if err != nil {
-		return fmt.Errorf("failed to get source object for copy: %w", err)
+		return "", fmt.Errorf("failed to get source object for copy: %w", err)
 	}
 	defer func() { _ = srcInfo.Body.Close() }()
 
 	// Put to destination
-	err = af.PutObject(ctx, destBucket, destKey, srcInfo.Size, srcInfo.Body)
+	etag, err = af.PutObject(ctx, destBucket, destKey, srcInfo.Size, srcInfo.Body)
 	if err != nil {
-		return fmt.Errorf("failed to upload destination object for copy: %w", err)
+		return "", fmt.Errorf("failed to upload destination object for copy: %w", err)
 	}
 
-	return nil
+	return etag, nil
 }
 
 // DeleteObject deletes a file from Azure Files.
@@ -701,8 +710,11 @@ func (af *AzureFileBackend) UploadPart(ctx context.Context, bucketName, objectKe
 		upload.PartOrder = append(upload.PartOrder, partNumber)
 	}
 
-	// Generate ETag for the part
-	etag = fmt.Sprintf("\"%s-%d\"", uploadID, partNumber)
+	// Real S3 part ETags are the hex MD5 of the part body; use that instead
+	// of an opaque uploadID-based value so S3 clients that validate part
+	// checksums don't choke on a non-hex value.
+	sum := md5.Sum(partData) //nolint:gosec // MD5 required for S3 ETag compatibility, not security
+	etag = fmt.Sprintf("\"%x\"", sum)
 
 	return etag, nil
 }
@@ -762,8 +774,11 @@ func (af *AzureFileBackend) CompleteMultipartUpload(ctx context.Context, bucketN
 		return "", fmt.Errorf("failed to create parent directories: %w", err)
 	}
 
-	// Upload the complete file
-	err = af.PutObject(ctx, bucketName, objectKey, totalSize, &assembledData)
+	// Upload the complete file. Since we assemble the full object in memory
+	// before writing it, PutObject's returned ETag is already a real MD5 of
+	// the complete content (unlike a true chunked backend, we don't need a
+	// composite per-part digest here).
+	etag, err = af.PutObject(ctx, bucketName, objectKey, totalSize, &assembledData)
 	if err != nil {
 		return "", fmt.Errorf("failed to upload complete file: %w", err)
 	}
@@ -773,7 +788,7 @@ func (af *AzureFileBackend) CompleteMultipartUpload(ctx context.Context, bucketN
 	defer af.multipartUploadsMutex.Unlock()
 	delete(af.multipartUploads, uploadID)
 
-	return fmt.Sprintf("\"%s\"", uploadID), nil
+	return etag, nil
 }
 
 // AbortMultipartUpload aborts an ongoing multipart upload.
@@ -814,9 +829,10 @@ func (af *AzureFileBackend) ListParts(ctx context.Context, bucketName, objectKey
 	var parts []interface{}
 	for _, partNum := range upload.PartOrder {
 		partData := upload.Parts[partNum]
+		sum := md5.Sum(partData) //nolint:gosec // MD5 required for S3 ETag compatibility, not security
 		parts = append(parts, map[string]interface{}{
 			"PartNumber": partNum,
-			"ETag":       fmt.Sprintf("\"%s-%d\"", uploadID, partNum),
+			"ETag":       fmt.Sprintf("\"%x\"", sum),
 			"Size":       int64(len(partData)),
 		})
 	}

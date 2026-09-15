@@ -3,6 +3,7 @@ package azureblob
 import (
 	"bytes"
 	"context"
+	"crypto/md5" //nolint:gosec // used for S3 ETag compatibility, not security
 	"sync"
 	"testing"
 	"time"
@@ -105,12 +106,12 @@ func TestAzureBlobBackendOperations(t *testing.T) {
 	_, _, _, _ = backend.HeadObject(ctx, "bucket", "key")
 	_ = backend.DeleteObject(ctx, "bucket", "key")
 	testData := []byte("test-data")
-	_ = backend.PutObject(ctx, "bucket", "key", int64(len(testData)), bytes.NewReader(testData))
+	_, _ = backend.PutObject(ctx, "bucket", "key", int64(len(testData)), bytes.NewReader(testData))
 	info, _ := backend.GetObject(ctx, "bucket", "key")
 	if info.Body != nil {
 		_ = info.Body.Close()
 	}
-	_ = backend.CopyObject(ctx, "srcBucket", "srcKey", "destBucket", "destKey")
+	_, _ = backend.CopyObject(ctx, "srcBucket", "srcKey", "destBucket", "destKey")
 }
 
 func TestAzureBlobBackendContextHandling(t *testing.T) {
@@ -225,7 +226,8 @@ func TestMultipartUploadMismatchedBucketKey(t *testing.T) {
 		UploadID:        "test-upload-123",
 		BucketName:      "bucket1",
 		ObjectKey:       "key1",
-		BlockIDs:        []string{},
+		BlockIDByPart:   make(map[int]string),
+		PartMD5ByPart:   make(map[int][md5.Size]byte),
 		PartETagMap:     make(map[int]string),
 		BlockBlobClient: nil, // Not needed for this test
 	}
@@ -294,7 +296,8 @@ func TestAbortMultipartUploadSuccess(t *testing.T) {
 		UploadID:        "test-upload-123",
 		BucketName:      "bucket1",
 		ObjectKey:       "key1",
-		BlockIDs:        []string{},
+		BlockIDByPart:   make(map[int]string),
+		PartMD5ByPart:   make(map[int][md5.Size]byte),
 		PartETagMap:     make(map[int]string),
 		BlockBlobClient: nil,
 	}
@@ -325,7 +328,8 @@ func TestListMultipartUploadsMultiple(t *testing.T) {
 		UploadID:        "upload-1",
 		BucketName:      "bucket1",
 		ObjectKey:       "key1",
-		BlockIDs:        []string{},
+		BlockIDByPart:   make(map[int]string),
+		PartMD5ByPart:   make(map[int][md5.Size]byte),
 		PartETagMap:     make(map[int]string),
 		BlockBlobClient: nil,
 	}
@@ -334,7 +338,8 @@ func TestListMultipartUploadsMultiple(t *testing.T) {
 		UploadID:        "upload-2",
 		BucketName:      "bucket1",
 		ObjectKey:       "key2",
-		BlockIDs:        []string{},
+		BlockIDByPart:   make(map[int]string),
+		PartMD5ByPart:   make(map[int][md5.Size]byte),
 		PartETagMap:     make(map[int]string),
 		BlockBlobClient: nil,
 	}
@@ -364,7 +369,11 @@ func TestListPartsWithParts(t *testing.T) {
 		UploadID:   "upload-123",
 		BucketName: "bucket1",
 		ObjectKey:  "key1",
-		BlockIDs:   []string{"block1", "block2", "block3"},
+		BlockIDByPart: map[int]string{
+			1: "block1",
+			2: "block2",
+			3: "block3",
+		},
 		PartETagMap: map[int]string{
 			1: "etag1",
 			2: "etag2",
@@ -484,7 +493,12 @@ func TestListPartsWithMultipleParts(t *testing.T) {
 	upload := &MultipartUploadMetadata{
 		BucketName: "bucket1",
 		ObjectKey:  "key1",
-		BlockIDs:   []string{"block1", "block2", "block3", "block4"},
+		BlockIDByPart: map[int]string{
+			1: "block1",
+			2: "block2",
+			3: "block3",
+			4: "block4",
+		},
 		PartETagMap: map[int]string{
 			1: "etag1",
 			2: "etag2",
@@ -519,10 +533,10 @@ func TestAbortMultipartUpload_Success(t *testing.T) {
 
 	// Create a multipart upload
 	upload := &MultipartUploadMetadata{
-		BucketName:  "bucket1",
-		ObjectKey:   "key1",
-		BlockIDs:    []string{"block1"},
-		PartETagMap: map[int]string{1: "etag1"},
+		BucketName:    "bucket1",
+		ObjectKey:     "key1",
+		BlockIDByPart: map[int]string{1: "block1"},
+		PartETagMap:   map[int]string{1: "etag1"},
 	}
 
 	backend.multipartUploadsMutex.Lock()

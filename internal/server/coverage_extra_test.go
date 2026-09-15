@@ -25,11 +25,11 @@ func (stubBackend) ListBuckets(ctx context.Context) ([]string, error)           
 func (stubBackend) CreateBucket(ctx context.Context, bucketName string) error       { return nil }
 func (stubBackend) DeleteBucket(ctx context.Context, bucketName string) error       { return nil }
 func (stubBackend) HeadBucket(ctx context.Context, bucketName string) (bool, error) { return true, nil }
-func (stubBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) error {
-	return nil
+func (stubBackend) PutObject(ctx context.Context, bucketName, objectKey string, size int64, data io.Reader) (string, error) {
+	return "\"etag\"", nil
 }
-func (stubBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error {
-	return nil
+func (stubBackend) CopyObject(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) (string, error) {
+	return "\"etag\"", nil
 }
 func (stubBackend) GetObject(ctx context.Context, bucketName, objectKey string) (backend.ObjectInfo, error) {
 	return backend.ObjectInfo{Body: io.NopCloser(strings.NewReader("ok")), LastModified: time.Now(), Size: 2}, nil
