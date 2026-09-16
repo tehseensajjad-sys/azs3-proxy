@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -87,6 +88,63 @@ func applyCLIOverrides(cfg *config.Config, o cliOverrides) error {
 	}
 
 	return nil
+}
+
+// logRuntimeInfo logs details about the Go runtime and host process, useful
+// for correlating behavior/perf issues with the environment the proxy is
+// actually running in.
+func logRuntimeInfo(logger *logging.Logger) {
+	logger.Info("runtime info",
+		zap.String("go_version", runtime.Version()),
+		zap.String("os", runtime.GOOS),
+		zap.String("arch", runtime.GOARCH),
+		zap.Int("num_cpu", runtime.NumCPU()),
+		zap.Int("gomaxprocs", runtime.GOMAXPROCS(0)),
+		zap.Int("pid", os.Getpid()))
+}
+
+// logConfigSummary logs the effective configuration at startup, excluding
+// secrets (account keys, SAS tokens, client secrets, S3 credentials, etc.).
+// This is meant to help diagnose misconfiguration and environment drift
+// without ever writing sensitive values to logs.
+func logConfigSummary(logger *logging.Logger, cfg *config.Config) {
+	logger.Info("server configuration",
+		zap.String("listen_addr", cfg.ListenAddr),
+		zap.Bool("tls_enabled", cfg.EnableTLS),
+		zap.Bool("admin_token_configured", cfg.AdminToken != ""),
+		zap.String("log_level", cfg.LogLevel),
+		zap.String("log_mode", cfg.LogMode),
+		zap.String("log_file", cfg.LogFile))
+
+	logger.Info("azure backend configuration",
+		zap.String("backend_type", cfg.AzureBackendType),
+		zap.String("auth_mode", string(cfg.AzureAuth.Mode)),
+		zap.String("storage_account", cfg.AzureAuth.StorageAccountName),
+		zap.String("storage_account_url", cfg.AzureAuth.StorageAccountURL),
+		zap.String("tenant_id", cfg.AzureAuth.TenantID),
+		zap.String("subscription_id", cfg.AzureAuth.SubscriptionID))
+
+	logger.Info("s3 auth configuration",
+		zap.Bool("s3_access_key_configured", cfg.S3AccessKeyID != ""),
+		zap.Bool("s3_secret_key_configured", cfg.S3SecretAccessKey != ""))
+
+	logger.Info("cache configuration",
+		zap.Bool("enabled", cfg.CacheEnabled),
+		zap.String("path", cfg.CachePath),
+		zap.Int64("max_size_bytes", cfg.CacheMaxSize),
+		zap.Int("ttl_seconds", cfg.CacheTTL))
+
+	logger.Info("bandwidth cap configuration",
+		zap.Float64("cap_mbps_read", cfg.CapMbpsRead),
+		zap.Float64("cap_mbps_write", cfg.CapMbpsWrite),
+		zap.Float64("cap_mbps_combined", cfg.CapMbpsCombined))
+
+	logger.Info("adaptive concurrency configuration",
+		zap.Bool("enabled", cfg.AdaptiveConcurrencyEnabled),
+		zap.Int("min", cfg.AdaptiveConcurrencyMin),
+		zap.Int("max", cfg.AdaptiveConcurrencyMax),
+		zap.Int("target_ms", cfg.AdaptiveConcurrencyTargetMs),
+		zap.Int("acquire_timeout_ms", cfg.AdaptiveConcurrencyAcquireMs))
 }
 
 // main is the entry point for the S3 to Azure Blob Storage proxy application.
@@ -177,6 +235,8 @@ func main() {
 	defer func() { _ = logger.Sync() }()
 
 	logger.Info("starting azs3-proxy", zap.String("version", version.Version))
+	logRuntimeInfo(logger)
+	logConfigSummary(logger, cfg)
 
 	// Start pprof server for profiling if enabled
 	if *pprof {
